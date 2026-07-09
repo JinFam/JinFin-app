@@ -269,6 +269,14 @@
     return out;
   }
 
+  // 항목 타겟날짜를 체크리스트 D-Day 기준 오프셋으로 → "D-7" / "D-DAY" / "D+3".
+  function ddayLabel(it, cl) {
+    if (!it || !it.targetDate || !cl || !cl.dDay) return "";
+    var off = CK.offsetOf(it.targetDate, cl.dDay);
+    if (off === 0) return "D-DAY";
+    return off < 0 ? "D" + off : "D+" + off;
+  }
+
   function renderItems() {
     var host = document.getElementById("cl-items");
     host.innerHTML = "";
@@ -280,8 +288,17 @@
     } }, "+ 항목 추가");
     var datalist = el("datalist", { id: "cl-tag-list" }, distinctTags(cl).map(function (t) { return el("option", { value: t }); }));
 
-    var cols = ["D-Day그룹", "항목태그", "항목명", "상태", "타겟날짜", "담당자", "편집"];
-    var thead = el("thead", null, el("tr", null, cols.map(function (h) { return el("th", null, h); })));
+    var colDefs = [
+      { label: "D-Day", cls: "cl-c-dday" },
+      { label: "D-Day그룹", cls: "cl-c-group" },
+      { label: "항목태그", cls: "cl-c-tag" },
+      { label: "항목명", cls: "cl-c-name" },
+      { label: "상태", cls: "cl-c-status" },
+      { label: "타겟날짜", cls: "cl-c-target" },
+      { label: "담당자", cls: "cl-c-assignee" },
+      { label: "편집", cls: "cl-c-edit" }
+    ];
+    var thead = el("thead", null, el("tr", null, colDefs.map(function (c) { return el("th", { class: c.cls }, c.label); })));
     var tbody = el("tbody", null, []);
 
     var items = (cl.items || []).filter(function (it) {
@@ -297,7 +314,7 @@
       return JF.format.ymCompare(ad, bd);
     });
     if (!items.length) {
-      tbody.appendChild(el("tr", null, el("td", { colspan: "7", class: "muted" }, "항목이 없습니다.")));
+      tbody.appendChild(el("tr", null, el("td", { colspan: "8", class: "muted" }, "항목이 없습니다.")));
     } else {
       items.forEach(function (it) {
         var g = CK.assignGroup(it, cl);
@@ -309,16 +326,17 @@
         tbody.appendChild(el("tr", { class: "exp-row" + (openItemId === it.id ? " is-open" : ""), onClick: function () {
           openItemId = (openItemId === it.id ? null : it.id); render();
         } }, [
+          el("td", { class: "cl-c-dday" }, ddayLabel(it, cl) || null),
           groupCell,
           el("td", { class: "cl-c-tag" }, it.tag || null),
           el("td", { class: "cell-wrap cl-c-name" }, it.name || ""),
           el("td", { class: "cl-c-status" }, el("span", { class: "status-badge " + statusCls }, status)),
-          el("td", { class: "cl-c-target" }, it.targetDate || null),
+          el("td", { class: "cl-c-target" }, it.targetDate ? it.targetDate.slice(5) : null),
           el("td", { class: "cl-c-assignee" }, it.assignee || null),
           el("td", { class: "cl-c-edit" }, openItemId === it.id ? "닫기 ▾" : "편집 ▸")
         ]));
         if (openItemId === it.id) {
-          tbody.appendChild(el("tr", null, el("td", { class: "exp-edit-cell", colspan: "7" }, itemEditor(it, cl))));
+          tbody.appendChild(el("tr", null, el("td", { class: "exp-edit-cell", colspan: "8" }, itemEditor(it, cl))));
         }
       });
     }

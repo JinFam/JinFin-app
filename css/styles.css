@@ -943,43 +943,53 @@ input[type="radio"] {
 .cal-item.is-done { text-decoration: line-through; opacity: 0.6; }
 .cal-item.is-pending { opacity: 0.55; }
 
-/* ── 체크리스트 항목 표: 모바일에서 카드형으로 리플로우(가로 스크롤 제거) ── */
+/* D-Day 값 열: 데스크톱 표에선 숨기고 모바일 리스트에서만 표시. */
+.cl-c-dday { display: none; }
+
+/* ── 체크리스트 항목 표: 모바일에서 열이 정렬된 리스트로 리플로우(가로 스크롤 제거) ── */
 @media (max-width: 640px) {
-  /* 표 최소폭 해제 + 블록화(헤더 숨김) → 표가 화면폭에 맞게 접힘. */
+  /* 표 최소폭 해제 + 블록화(헤더 숨김). */
   table.table.cl-item-table { min-width: 0; }
   .cl-item-table thead { display: none; }
   .cl-item-table,
   .cl-item-table tbody { display: block; width: 100%; }
   .cl-item-table tr { display: block; }
 
-  /* 데이터 행 = 카드: 1줄=[항목명 … 상태], 2줄=[그룹·날짜·담당·태그] 작게. */
+  /* 데이터 행 = 열 정렬 그리드: [D-day] [상태점] [제목] [타겟 mm-dd] [담당자] */
   .cl-item-table tr.exp-row {
-    display: flex; flex-wrap: wrap; align-items: center;
-    gap: 3px 8px; padding: 9px 12px;
-    border-bottom: 1px solid var(--jf-border); cursor: pointer;
+    display: grid;
+    grid-template-columns: 3.2rem 1rem minmax(0, 1fr) 3rem 3.6rem;
+    align-items: center;
+    column-gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--jf-border);
+    cursor: pointer;
   }
-  .cl-item-table tr.exp-row > td { border: none; padding: 0; white-space: normal; }
+  .cl-item-table tr.exp-row > td {
+    border: none; padding: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
-  .cl-c-name { order: 1; flex: 1 1 auto; font-weight: 700; }
-  .cl-c-status { order: 2; flex: 0 0 auto; margin-left: auto; }  /* 1줄 오른쪽 끝 */
-  .cl-c-group {
-    order: 3; flex: 0 0 auto; width: auto;
-    font-size: 0.72rem; padding: 0.05rem 0.5rem; border-radius: 999px;
-  }
-  .cl-c-target, .cl-c-assignee, .cl-c-tag {
-    flex: 0 0 auto; font-size: 0.75rem; color: var(--jf-text-muted);
-  }
-  .cl-c-target { order: 4; }
-  .cl-c-assignee { order: 5; }
-  .cl-c-tag { order: 6; }
-  .cl-c-target:not(:empty)::before { content: "📅 "; }
-  .cl-c-assignee:not(:empty)::before { content: "· 담당 "; }
-  .cl-c-tag:not(:empty)::before { content: "· #"; }
-  /* 빈 값 셀은 숨겨 flex gap이 생기지 않게(JS에서 빈 값은 null로 전달). */
-  .cl-c-target:empty, .cl-c-assignee:empty, .cl-c-tag:empty { display: none; }
-  .cl-c-edit { display: none; }   /* 편집 열 숨김(행을 탭하면 편집 열림) */
+  /* 숨김: 분류(그룹)·태그·편집 열 */
+  .cl-c-group, .cl-c-tag, .cl-c-edit { display: none; }
 
-  /* 편집(펼침) 행: 전체폭 블록 → 폼이 표 최소폭에 갇혀 가로 스크롤되던 문제 해결. */
+  /* 표시 순서·스타일 고정 */
+  .cl-c-dday { display: block; order: 1; font-size: 0.72rem; color: var(--jf-text-muted); font-variant-numeric: tabular-nums; }
+  .cl-c-status { order: 2; text-align: center; }
+  .cl-c-name { order: 3; font-weight: 600; }
+  .cl-c-target { order: 4; font-size: 0.75rem; color: var(--jf-text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .cl-c-assignee { order: 5; font-size: 0.75rem; color: var(--jf-text-muted); text-align: right; }
+
+  /* 상태 = 색 원만(예정 회색 / 진행중 노랑 / 완료 초록), 텍스트 숨김. */
+  .cl-c-status .status-badge {
+    display: inline-block; width: 11px; height: 11px; padding: 0;
+    border-radius: 50%; font-size: 0; line-height: 0; color: transparent; vertical-align: middle;
+  }
+  .cl-item-table .status-pending { background: #b7b7b7; }
+  .cl-item-table .status-progress { background: #f1c40f; }
+  .cl-item-table .status-done { background: #2ecc71; }
+
+  /* 편집(펼침) 행: 전체폭 블록(그리드 아님) → 폼이 표 최소폭에 갇히지 않음. */
   .cl-item-table tr td.exp-edit-cell { display: block; width: 100%; }
 }
 
