@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JinFinance — 대시보드</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="jf-page-body">
+  <main class="jf-section" id="dash-main">
+    <header class="jf-section">
+      <h1 class="card-title">월별 현금흐름 대시보드</h1>
+      <p class="muted">계획 vs 실제 이중 트랙 · 통장 잔액 롤포워드 · 단위: <strong>만원</strong></p>
+    </header>
+
+    <section class="kpi-grid jf-section" id="dash-kpis"></section>
+
+    <section class="jf-section" id="dash-controls"></section>
+
+    <section class="table-wrap jf-section">
+      <table class="table" id="dash-table"></table>
+    </section>
+
+    <section class="jf-section">
+      <p class="muted" id="dash-note"></p>
+    </section>
+  </main>
+
+  <script src="js/format.js"></script>
+  <script src="js/schema.js"></script>
+  <script src="js/seed.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/sync-config.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/sync-ui.js"></script>
+  <script src="js/app-dashboard.js"></script>
+</body>
+</html>
