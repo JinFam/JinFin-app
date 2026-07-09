@@ -404,6 +404,7 @@ body.jf-has-banner .jf-nav {
 
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;   /* 모바일에서 관성 스크롤(넓은 표는 표 안에서만 좌우 이동) */
   border: 1px solid var(--jf-border);
   border-radius: var(--jf-radius);
   background: var(--jf-bg-elevated);
@@ -846,22 +847,29 @@ input[type="radio"] {
     padding: 1rem;
   }
 
-  .field-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.55rem;
-  }
+  /* iOS Safari는 16px 미만 컨트롤에 포커스하면 페이지를 확대 → 화면이 가로로 밀림.
+     16px로 고정해 방지. height:auto+min-height로 큰 글자 클리핑 방지(textarea는 자체 높이 유지). */
+  input, select, textarea { font-size: 16px; }
+  input, select { height: auto; min-height: 2.4rem; }
 
-  .field-row > input,
-  .field-row > select,
-  .field-row > textarea,
-  .field-row > .btn {
-    width: 100%;
-    max-width: none;
-    flex: 1 1 auto;
-  }
-
+  /* 필드 줄을 통짜 세로 스택(모두 100% 폭)으로 만들지 않고 wrap 유지 →
+     짧은 숫자/날짜 칸은 나란히, 텍스트/선택만 한 줄 차지 → 폼 세로 길이 대폭 단축. */
+  .field-row { gap: 0.5rem 0.6rem; }
   .field-row > label { white-space: normal; }
+  .field-row > input[type="text"],
+  .field-row > select {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .field-row > input[type="number"] { flex: 0 0 auto; width: 6.5rem; }
+  .field-row > input[type="month"],
+  .field-row > input[type="date"] { flex: 0 0 auto; width: 9rem; }
+  .field-row > .btn { flex: 0 0 auto; width: auto; }
+
+  /* 넓은 데이터 표: 셀 여백을 줄여 (표 안에서 스크롤되는) 가로 폭을 축소. */
+  table.table th,
+  table.table td { padding: 0.45rem 0.6rem; }
 
   h1 { font-size: 1.35rem; }
 }
