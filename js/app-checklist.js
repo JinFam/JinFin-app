@@ -304,18 +304,18 @@
         var status = CK.itemStatus(it);
         var statusCls = status === "완료" ? "status-done" : (status === "진행중" ? "status-progress" : "status-pending");
         var groupCell = g
-          ? el("td", { class: "cell-colored", style: { background: g.color } }, g.label)
-          : el("td", { class: "muted" }, "미분류");
+          ? el("td", { class: "cell-colored cl-c-group", style: { background: g.color } }, g.label)
+          : el("td", { class: "muted cl-c-group" }, "미분류");
         tbody.appendChild(el("tr", { class: "exp-row" + (openItemId === it.id ? " is-open" : ""), onClick: function () {
           openItemId = (openItemId === it.id ? null : it.id); render();
         } }, [
           groupCell,
-          el("td", null, it.tag || ""),
-          el("td", { class: "cell-wrap" }, it.name || ""),
-          el("td", null, el("span", { class: "status-badge " + statusCls }, status)),
-          el("td", null, it.targetDate || ""),
-          el("td", null, it.assignee || ""),
-          el("td", null, openItemId === it.id ? "닫기 ▾" : "편집 ▸")
+          el("td", { class: "cl-c-tag" }, it.tag || null),
+          el("td", { class: "cell-wrap cl-c-name" }, it.name || ""),
+          el("td", { class: "cl-c-status" }, el("span", { class: "status-badge " + statusCls }, status)),
+          el("td", { class: "cl-c-target" }, it.targetDate || null),
+          el("td", { class: "cl-c-assignee" }, it.assignee || null),
+          el("td", { class: "cl-c-edit" }, openItemId === it.id ? "닫기 ▾" : "편집 ▸")
         ]));
         if (openItemId === it.id) {
           tbody.appendChild(el("tr", null, el("td", { class: "exp-edit-cell", colspan: "7" }, itemEditor(it, cl))));
@@ -330,7 +330,7 @@
       ]),
       el("div", { class: "card-body stack" }, [
         datalist,
-        el("div", { class: "table-wrap" }, el("table", { class: "table table-dense" }, [thead, tbody]))
+        el("div", { class: "table-wrap" }, el("table", { class: "table table-dense cl-item-table" }, [thead, tbody]))
       ])
     ]));
   }
