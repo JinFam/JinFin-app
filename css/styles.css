@@ -233,6 +233,11 @@ body.jf-has-banner .jf-nav {
   letter-spacing: -0.01em;
   margin-right: 0.5rem;
 }
+/* 브랜드 + 기준금리 줄(타이틀 아래) 세로 묶음 */
+.jf-nav-brandbox { display: flex; flex-direction: column; justify-content: center; margin-right: 0.5rem; line-height: 1.15; }
+.jf-nav-brandbox .jf-nav-brand { margin-right: 0; }
+.jf-ref-rate { font-size: 0.7rem; font-weight: 600; color: var(--jf-primary); white-space: nowrap; }
+.jf-ref-rate:empty { display: none; }   /* 값 로드 전/실패 시 자리 안 차지 */
 
 .jf-nav-list {
   list-style: none;
@@ -841,7 +846,7 @@ input[type="radio"] {
     gap: 0.75rem;
   }
 
-  .jf-nav-brand {
+  .jf-nav-brandbox {
     width: 100%;
     margin-right: 0;
   }

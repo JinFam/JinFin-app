@@ -57,6 +57,27 @@ window.JF = window.JF || {};
 
   // renderNav(activePage): injects a <nav> with 5 links, highlighting activePage
   // (e.g. "income.html"). Safe to call more than once (replaces any existing nav).
+  // 금융채 6개월 기준금리(SC 게시값)를 rate.json에서 읽어 브랜드 아래 표시.
+  // file:// 등 origin 없는 환경에선 요청하지 않음(로컬 무-fetch 보장 · dom-smoke 유지).
+  function loadRefRate() {
+    try {
+      var proto = (typeof location !== "undefined" && location.protocol) || "";
+      if (proto !== "http:" && proto !== "https:") return;
+      if (typeof fetch !== "function") return;
+      fetch("rate.json", { cache: "no-store" })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.rate) return;
+          var host = document.getElementById("jf-ref-rate");
+          if (!host) return;
+          var mmdd = (d.asOf && d.asOf.length >= 10) ? d.asOf.slice(5) : (d.asOf || "");
+          host.textContent = (d.label || "금융채 6개월") + " " + d.rate + (d.unit || "%") + (mmdd ? " · 기준 " + mmdd : "");
+          host.title = (d.source || "기준금리") + (d.asOf ? " (" + d.asOf + ")" : "");
+        })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
   function renderNav(activePage) {
     var existing = document.getElementById(NAV_ID);
     if (existing && existing.parentNode) {
@@ -81,14 +102,20 @@ window.JF = window.JF || {};
       })
     );
 
-    var nav = el("nav", { id: NAV_ID, class: "jf-nav" }, [
+    var brandbox = el("div", { class: "jf-nav-brandbox" }, [
       el("span", { class: "jf-nav-brand" }, "JinFinance"),
+      el("span", { id: "jf-ref-rate", class: "jf-ref-rate" })   // 금융채 6개월 기준금리(rate.json 비동기 로드)
+    ]);
+
+    var nav = el("nav", { id: NAV_ID, class: "jf-nav" }, [
+      brandbox,
       list
     ]);
 
     if (document.body) {
       document.body.insertBefore(nav, document.body.firstChild);
     }
+    loadRefRate();
     return nav;
   }
 
