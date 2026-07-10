@@ -2,15 +2,13 @@ name: Update loan base rate
 
 # SC제일은행 여신기준금리(금융채 6개월제)를 매 영업일 받아 rate.json 갱신.
 # 값이 바뀔 때만 커밋한다. 실패하면 job 자체가 실패(조용한 정지 방지).
+# 조직이 GITHUB_TOKEN 쓰기를 막아두어, 되커밋은 RATE_PUSH_TOKEN(개인 PAT 시크릿)으로 한다.
 
 on:
   schedule:
-    - cron: "0 15 * * 1-5"   # 월~금 10:30 KST
-    - cron: "0 9 * * 1-5"    # 월~금 16:00 KST
+    - cron: "0 2 * * 1-5"    # 월~금 11:00 KST (UTC+9)
+    - cron: "0 9 * * 1-5"    # 월~금 18:00 KST (UTC+9)
   workflow_dispatch: {}
-
-permissions:
-  contents: write
 
 concurrency:
   group: update-rate
@@ -21,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RATE_PUSH_TOKEN }}   # Contents 쓰기 권한 있는 fine-grained PAT
 
       - name: Fetch SC 금융채 6개월 기준금리
         run: |
@@ -40,15 +40,20 @@ jobs:
             echo "::error::응답이 예상 JSON이 아님(차단/구조변경 가능). 앞부분:"; printf '%s' "$resp" | head -c 300; echo; exit 1
           fi
 
-          rate="$(printf '%s' "$resp" | jq -r '.vector[0].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE')"
-          asof="$(printf '%s' "$resp" | jq -r '.vector[0].LOAN_BASE.BASE_DT')"
-          echo "rate=$rate asOf=$asof"
+          BASE_REF="2026-07-01"   # 비교 기준일(고정). 바꾸려면 이 값 수정.
+          rate="$(printf '%s'  "$resp" | jq -r '.vector[0].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE')"
+          asof="$(printf '%s'  "$resp" | jq -r '.vector[0].LOAN_BASE.BASE_DT')"
+          prate="$(printf '%s' "$resp" | jq -r '.vector[1].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE // ""')"
+          pasof="$(printf '%s' "$resp" | jq -r '.vector[1].LOAN_BASE.BASE_DT // ""')"
+          brate="$(printf '%s' "$resp" | jq -r --arg d "$BASE_REF" '[.vector[].LOAN_BASE|select(.BASE_DT==$d)][0].FNANCL_BOND_6_MH_EXPIRE // ""')"
+          echo "rate=$rate asOf=$asof prev=$prate($pasof) base=$brate($BASE_REF)"
 
           echo "$rate" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || { echo "::error::금리 형식 이상: '$rate'"; exit 1; }
           echo "$asof" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || { echo "::error::기준일 형식 이상: '$asof'"; exit 1; }
 
-          jq -n --arg rate "$rate" --arg asof "$asof" \
-            '{label:"금융채 6개월", rate:$rate, asOf:$asof, unit:"%", source:"SC제일은행 여신기준금리"}' \
+          jq -n --arg rate "$rate" --arg asof "$asof" --arg prate "$prate" --arg pasof "$pasof" \
+                --arg brate "$brate" --arg basof "$BASE_REF" \
+            '{label:"금융채 6개월", rate:$rate, asOf:$asof, prevRate:$prate, prevAsOf:$pasof, baseRate:$brate, baseAsOf:$basof, unit:"%", source:"SC제일은행 여신기준금리"}' \
             > rate.json.new
 
       - name: Commit if changed
