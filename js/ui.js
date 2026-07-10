@@ -57,8 +57,27 @@ window.JF = window.JF || {};
 
   // renderNav(activePage): injects a <nav> with 5 links, highlighting activePage
   // (e.g. "income.html"). Safe to call more than once (replaces any existing nav).
+  // 가산금리(대출 조건). 최종금리 = 기준금리 + 가산금리. 조건이 바뀌면 이 값만 수정.
+  var LOAN_SPREAD = 1.16;
+
+  // 등락 표기: 상승 ▲, 하락 ▼, 보합 ─ (기준 대비 %p).
+  function refDelta(cur, ref) {
+    if (ref == null || ref === "" || isNaN(parseFloat(ref))) return null;
+    var v = cur - parseFloat(ref);
+    var a = Math.abs(v).toFixed(2);
+    if (v > 0.0001) return "▲" + a;
+    if (v < -0.0001) return "▼" + a;
+    return "─";
+  }
+  function refMmdd(ymd) {
+    if (!ymd) return "";
+    var p = String(ymd).split("-");
+    return p.length >= 3 ? (Number(p[1]) + "/" + Number(p[2])) : ymd;
+  }
+
   // 금융채 6개월 기준금리(SC 게시값)를 rate.json에서 읽어 브랜드 아래 표시.
-  // file:// 등 origin 없는 환경에선 요청하지 않음(로컬 무-fetch 보장 · dom-smoke 유지).
+  // 기준금리 · 전일/7·1 대비 · 최종금리(+가산). file:// 등 origin 없는 환경에선
+  // 요청하지 않음(로컬 무-fetch 보장 · dom-smoke 유지).
   function loadRefRate() {
     try {
       var proto = (typeof location !== "undefined" && location.protocol) || "";
@@ -70,9 +89,25 @@ window.JF = window.JF || {};
           if (!d || !d.rate) return;
           var host = document.getElementById("jf-ref-rate");
           if (!host) return;
-          var mmdd = (d.asOf && d.asOf.length >= 10) ? d.asOf.slice(5) : (d.asOf || "");
-          host.textContent = (d.label || "금융채 6개월") + " " + d.rate + (d.unit || "%") + (mmdd ? " · 기준 " + mmdd : "");
-          host.title = (d.source || "기준금리") + (d.asOf ? " (" + d.asOf + ")" : "");
+          var unit = d.unit || "%";
+          var cur = parseFloat(d.rate);
+          host.textContent = "";
+          host.appendChild(el("span", { class: "jf-ref-base" },
+            (d.label || "금융채 6개월") + " " + d.rate + unit));
+          var deltas = [];
+          var dPrev = refDelta(cur, d.prevRate);
+          if (dPrev) deltas.push("전일 " + dPrev);
+          var dBase = refDelta(cur, d.baseRate);
+          if (dBase) deltas.push((refMmdd(d.baseAsOf) || "기준") + " " + dBase);
+          if (deltas.length) {
+            host.appendChild(el("span", { class: "jf-ref-delta" }, " · " + deltas.join(" · ")));
+          }
+          if (!isNaN(cur)) {
+            host.appendChild(el("span", { class: "jf-ref-final" },
+              " · 최종 " + (cur + LOAN_SPREAD).toFixed(2) + unit));
+          }
+          host.title = "기준 " + (d.asOf || "") + " · 가산 +" + LOAN_SPREAD + " → 최종 " +
+            (isNaN(cur) ? "?" : (cur + LOAN_SPREAD).toFixed(2)) + unit + " · " + (d.source || "");
         })
         .catch(function () {});
     } catch (e) {}
