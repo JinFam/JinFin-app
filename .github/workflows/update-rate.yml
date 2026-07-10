@@ -19,7 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.RATE_PUSH_TOKEN }}   # Contents 쓰기 권한 있는 fine-grained PAT
+          # 시크릿 있으면 PAT로 push 가능, 없어도 기본 토큰으로 checkout/fetch는 진행(마지막 push만 실패).
+          token: ${{ secrets.RATE_PUSH_TOKEN || github.token }}
 
       - name: Fetch SC 금융채 6개월 기준금리
         run: |
