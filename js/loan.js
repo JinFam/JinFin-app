@@ -119,9 +119,15 @@ var JF = (typeof window !== 'undefined')
       var date = startDate ? addMonths(startDate, k) : null;
 
       if (k <= g) {
-        // 거치: 이자만, 원금 0, 잔액 불변.
+        // 거치: 예정 원금은 0(이자만)이지만, 중도상환(목돈)은 거치 중에도 원금을
+        // 상환해 잔액을 줄인다. 잔액 초과분은 정리(잔액 전액 상환 시 조기 종료).
+        var gLump = lumpAt(k);
+        var gPrincipal = gLump > B ? B : gLump;
+        var gFinal = gPrincipal >= B; // 목돈이 잔액을 모두 상환하면 종료
+        B = B - gPrincipal;
         totalInterest += interest;
-        rows.push({ n: k, date: date, principal: 0, interest: interest, payment: interest, balance: B });
+        rows.push({ n: k, date: date, principal: gPrincipal, interest: interest, payment: interest + gPrincipal, balance: B, prepay: gPrincipal });
+        if (gFinal) break;
         continue;
       }
 
@@ -146,7 +152,7 @@ var JF = (typeof window !== 'undefined')
 
       B = B - principal;
       totalInterest += interest;
-      rows.push({ n: k, date: date, principal: principal, interest: interest, payment: payment, balance: B });
+      rows.push({ n: k, date: date, principal: principal, interest: interest, payment: payment, balance: B, prepay: lump });
 
       if (lump > 0 && !final) {
         A_int = Math.round(annuity(B, r, N - k));

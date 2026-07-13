@@ -1024,3 +1024,52 @@ input[type="radio"] {
   background: var(--jf-accent-soft, #eef2ff); color: var(--jf-text, #333);
 }
 .jf-sync-btn:hover { filter: brightness(0.96); }
+
+/* ---------------------------------------------------------------------- */
+/* 대출계산기 — 상환표 컬럼 하이라이트 + 비교 케이스 색 구분               */
+/* th.num/td.num 기본 배경(sunken)보다 클래스 수가 많아 아래 규칙이 이김.   */
+/* ---------------------------------------------------------------------- */
+
+/* 대출 계산: 납부액(진하게) · 대출잔액(연하게) — 같은 primary 계열 강약 대비 */
+table.table td.loan-hl-pay,
+table.table th.loan-hl-pay {
+  background: rgba(47, 111, 237, 0.16);
+  color: var(--jf-primary);
+  font-weight: 700;
+}
+table.table td.loan-hl-bal,
+table.table th.loan-hl-bal {
+  background: rgba(47, 111, 237, 0.055);
+}
+
+/* 대출 비교: 케이스1 붉은색 · 케이스2 파란색 · 케이스3 녹색(파스텔).
+   납부액(-pay)은 진하게 + 굵게, 잔액(-bal)은 연하게. */
+table.table td.loan-cmp-c0-bal, table.table th.loan-cmp-c0-bal { background: rgba(208, 52, 44, 0.08); }
+table.table td.loan-cmp-c0-pay, table.table th.loan-cmp-c0-pay { background: rgba(208, 52, 44, 0.20); font-weight: 700; }
+table.table td.loan-cmp-c1-bal, table.table th.loan-cmp-c1-bal { background: rgba(47, 111, 237, 0.08); }
+table.table td.loan-cmp-c1-pay, table.table th.loan-cmp-c1-pay { background: rgba(47, 111, 237, 0.20); font-weight: 700; }
+table.table td.loan-cmp-c2-bal, table.table th.loan-cmp-c2-bal { background: rgba(23, 146, 79, 0.09); }
+table.table td.loan-cmp-c2-pay, table.table th.loan-cmp-c2-pay { background: rgba(23, 146, 79, 0.22); font-weight: 700; }
+
+/* 중도상환이 포함된 상환원금 행 — 골드 배지 + 좌측 강조선(파란 납부액/잔액과 구분) */
+.badge.badge-prepay {
+  margin-left: 0.4rem;
+  background: var(--jf-warning-soft);
+  color: var(--jf-warning);
+  border: 1px solid var(--jf-warning);
+  font-weight: 700;
+}
+table.table td.loan-prepay-cell { white-space: nowrap; }
+table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-warning); }
+
+@media (prefers-color-scheme: dark) {
+  table.table td.loan-hl-pay, table.table th.loan-hl-pay { background: rgba(91, 141, 252, 0.28); color: var(--jf-primary); }
+  table.table td.loan-hl-bal, table.table th.loan-hl-bal { background: rgba(91, 141, 252, 0.12); }
+
+  table.table td.loan-cmp-c0-bal, table.table th.loan-cmp-c0-bal { background: rgba(255, 98, 89, 0.14); }
+  table.table td.loan-cmp-c0-pay, table.table th.loan-cmp-c0-pay { background: rgba(255, 98, 89, 0.30); }
+  table.table td.loan-cmp-c1-bal, table.table th.loan-cmp-c1-bal { background: rgba(91, 141, 252, 0.14); }
+  table.table td.loan-cmp-c1-pay, table.table th.loan-cmp-c1-pay { background: rgba(91, 141, 252, 0.30); }
+  table.table td.loan-cmp-c2-bal, table.table th.loan-cmp-c2-bal { background: rgba(62, 203, 125, 0.14); }
+  table.table td.loan-cmp-c2-pay, table.table th.loan-cmp-c2-pay { background: rgba(62, 203, 125, 0.30); }
+}

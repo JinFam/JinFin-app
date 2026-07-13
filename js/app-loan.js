@@ -8,6 +8,8 @@
   var editingId = null;     // null=폼 숨김, ""=신규, caseId=기존 편집
   var selectedCaseId = null; // "대출 계산" 섹션에 표시 중인 케이스
   var compareIds = [];       // 비교 체크된 케이스 id(로컬 전용, 동기화 안 함, 최대 3개)
+  var calcCollapsed = true;    // "대출 계산" 펼치기/접기(기본 접힘)
+  var compareCollapsed = true; // "대출 비교" 펼치기/접기(기본 접힘)
 
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 8); }
   function save() { JF.store.save(state); render(); }
@@ -69,7 +71,9 @@
       render();
       return;
     }
+    var wasEmpty = compareIds.length === 0;
     compareIds.push(id);
+    if (wasEmpty) compareCollapsed = false; // 첫 케이스 선택 시 자동으로 펼침
     render();
   }
 
@@ -191,7 +195,7 @@
       el("td", { class: "num" }, (c.linkToFinalRate ? "연동 " : "") + (c.annualRate != null ? Number(c.annualRate).toFixed(2) + "%" : "-")),
       el("td", null, c.startDate || "-"),
       el("td", null, [
-        el("button", { class: "btn btn-sm btn-primary", onClick: function () { selectedCaseId = c.id; render(); } }, "대출 계산"),
+        el("button", { class: "btn btn-sm btn-primary", onClick: function () { selectedCaseId = c.id; calcCollapsed = false; render(); } }, "대출 계산"),
         el("button", { class: "btn btn-sm btn-secondary", onClick: function () { editingId = c.id; render(); } }, "편집"),
         el("button", { class: "btn btn-sm btn-danger", onClick: function () { removeCase(c.id); } }, "삭제")
       ]),
@@ -241,19 +245,38 @@
     ]);
   }
 
+  // 카드 헤더용 펼치기/접기 토글 버튼.
+  function collapseToggle(collapsed, onToggle) {
+    return el("button", { class: "btn btn-sm btn-ghost push-right", onClick: onToggle },
+      collapsed ? "▶ 펼치기" : "▼ 접기");
+  }
+
   function renderCalc() {
     var host = document.getElementById("loan-calc");
     host.innerHTML = "";
 
-    if (!selectedCaseId) {
-      host.appendChild(el("div", { class: "card" }, [
-        el("div", { class: "card-header" }, el("span", { class: "card-title" }, "대출 계산")),
-        el("div", { class: "card-body" }, el("p", { class: "muted" }, "위 케이스 목록에서 [대출 계산] 버튼을 눌러 상환표를 확인하세요."))
-      ]));
+    var loanCase = selectedCaseId ? findCase(selectedCaseId) : null;
+    if (selectedCaseId && !loanCase) selectedCaseId = null;
+
+    var title = "대출 계산" + (loanCase ? " — " + (loanCase.name || "(이름 없음)") : "");
+    var header = el("div", { class: "card-header" }, [
+      el("span", { class: "card-title" }, title),
+      collapseToggle(calcCollapsed, function () { calcCollapsed = !calcCollapsed; render(); })
+    ]);
+
+    if (calcCollapsed) {
+      var hint = loanCase
+        ? "접힘 · [펼치기]로 상환표를 확인하세요."
+        : "접힘 · 위 케이스 목록에서 [대출 계산]을 누르면 상환표가 펼쳐집니다.";
+      host.appendChild(el("div", { class: "card" }, [header, el("div", { class: "card-body" }, el("p", { class: "muted" }, hint))]));
       return;
     }
-    var loanCase = findCase(selectedCaseId);
-    if (!loanCase) { selectedCaseId = null; renderCalc(); return; }
+
+    if (!loanCase) {
+      host.appendChild(el("div", { class: "card" }, [header,
+        el("div", { class: "card-body" }, el("p", { class: "muted" }, "위 케이스 목록에서 [대출 계산] 버튼을 눌러 상환표를 확인하세요."))]));
+      return;
+    }
 
     var calc = computeForCase(loanCase);
     var summary = calc.result.summary;
@@ -280,16 +303,30 @@
       notice = el("p", { class: "muted" }, "최종금리를 아직 불러오지 못했습니다(오프라인/file:// 등) — 케이스에 저장된 연이자율(수동 입력값)을 임시로 사용 중입니다. 최종금리 로드 시 자동으로 재계산됩니다.");
     }
 
-    var thead = el("thead", null, el("tr", null,
-      ["회차", "상환일", "상환원금", "이자액", "납부액", "대출잔액"].map(function (h) { return el("th", null, h); })));
+    var thead = el("thead", null, el("tr", null, [
+      el("th", null, "회차"),
+      el("th", null, "상환일"),
+      el("th", { class: "num" }, "상환원금"),
+      el("th", { class: "num" }, "이자액"),
+      el("th", { class: "num loan-hl-pay" }, "납부액"),
+      el("th", { class: "num loan-hl-bal" }, "대출잔액")
+    ]));
     var tbody = el("tbody", null, rows.map(function (row) {
-      return el("tr", null, [
+      var hasPrepay = row.prepay > 0;
+      var principalCell = hasPrepay
+        ? el("td", { class: "num loan-prepay-cell" }, [
+            won(row.principal),
+            el("span", { class: "badge badge-prepay", title: "중도상환 " + won(row.prepay) + " 포함" },
+              "중도 +" + JF.format.formatMan(row.prepay))
+          ])
+        : el("td", { class: "num" }, won(row.principal));
+      return el("tr", { class: hasPrepay ? "loan-prepay-row" : null }, [
         el("td", null, String(row.n)),
         el("td", null, row.date || "-"),
-        el("td", { class: "num" }, won(row.principal)),
+        principalCell,
         el("td", { class: "num" }, won(row.interest)),
-        el("td", { class: "num" }, won(row.payment)),
-        el("td", { class: "num" }, won(row.balance))
+        el("td", { class: "num loan-hl-pay" }, won(row.payment)),
+        el("td", { class: "num loan-hl-bal" }, won(row.balance))
       ]);
     }));
 
@@ -298,7 +335,7 @@
     bodyChildren.push(el("div", { class: "table-wrap" }, el("table", { class: "table table-dense" }, [thead, tbody])));
 
     host.appendChild(el("div", { class: "card" }, [
-      el("div", { class: "card-header" }, el("span", { class: "card-title" }, "대출 계산 — " + (loanCase.name || "(이름 없음)"))),
+      header,
       el("div", { class: "card-body stack" }, bodyChildren)
     ]));
   }
@@ -308,11 +345,22 @@
     var host = document.getElementById("loan-compare");
     host.innerHTML = "";
 
+    var header = el("div", { class: "card-header" }, [
+      el("span", { class: "card-title" }, "대출 비교 (" + compareIds.length + "/3)"),
+      collapseToggle(compareCollapsed, function () { compareCollapsed = !compareCollapsed; render(); })
+    ]);
+
+    if (compareCollapsed) {
+      var hint = compareIds.length
+        ? "접힘 · [펼치기]로 비교 표를 확인하세요(" + compareIds.length + "개 선택됨)."
+        : "접힘 · 케이스 목록에서 비교 체크박스를 선택하면 펼쳐집니다(최대 3개).";
+      host.appendChild(el("div", { class: "card" }, [header, el("div", { class: "card-body" }, el("p", { class: "muted" }, hint))]));
+      return;
+    }
+
     if (!compareIds.length) {
-      host.appendChild(el("div", { class: "card" }, [
-        el("div", { class: "card-header" }, el("span", { class: "card-title" }, "대출 비교")),
-        el("div", { class: "card-body" }, el("p", { class: "muted" }, "케이스 목록에서 비교 체크박스를 선택하세요(최대 3개)."))
-      ]));
+      host.appendChild(el("div", { class: "card" }, [header,
+        el("div", { class: "card-body" }, el("p", { class: "muted" }, "케이스 목록에서 비교 체크박스를 선택하세요(최대 3개)."))]));
       return;
     }
 
@@ -322,10 +370,10 @@
     var maxLen = computed.reduce(function (m, c) { return Math.max(m, c.out.rows.length); }, 0);
 
     var theadCells = [el("th", null, "회차"), el("th", null, "상환일")];
-    computed.forEach(function (c) {
+    computed.forEach(function (c, ci) {
       var nm = c.loanCase.name || "(이름없음)";
-      theadCells.push(el("th", { class: "num" }, nm + " 납부액"));
-      theadCells.push(el("th", { class: "num" }, nm + " 잔액"));
+      theadCells.push(el("th", { class: "num loan-cmp-c" + ci + "-pay" }, nm + " 납부액"));
+      theadCells.push(el("th", { class: "num loan-cmp-c" + ci + "-bal" }, nm + " 잔액"));
     });
     var thead = el("thead", null, el("tr", null, theadCells));
 
@@ -337,17 +385,17 @@
         el("td", null, anyRow ? String(anyRow.n) : String(i + 1)),
         el("td", null, anyRow ? (anyRow.date || "-") : "-")
       ];
-      computed.forEach(function (c) {
+      computed.forEach(function (c, ci) {
         var row = c.out.rows[i];
-        cells.push(el("td", { class: "num" }, row ? won(row.payment) : "-"));
-        cells.push(el("td", { class: "num" }, row ? won(row.balance) : "-"));
+        cells.push(el("td", { class: "num loan-cmp-c" + ci + "-pay" }, row ? won(row.payment) : "-"));
+        cells.push(el("td", { class: "num loan-cmp-c" + ci + "-bal" }, row ? won(row.balance) : "-"));
       });
       bodyRows.push(el("tr", null, cells));
     }
     var tbody = el("tbody", null, bodyRows);
 
     host.appendChild(el("div", { class: "card" }, [
-      el("div", { class: "card-header" }, el("span", { class: "card-title" }, "대출 비교 (" + computed.length + "/3)")),
+      header,
       el("div", { class: "card-body" }, el("div", { class: "table-wrap" }, el("table", { class: "table table-dense" }, [thead, tbody])))
     ]));
   }
