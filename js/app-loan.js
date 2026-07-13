@@ -157,7 +157,7 @@
       el("label", null, "추가 원금(만원):"), extraAmountInput,
       el("label", null, "시작 회차:"), extraFromInput
     ]));
-    body.appendChild(el("div", { class: "muted" }, "예정 원리금 위에 매월 추가 원금을 더 냅니다. 상환기(거치 이후)에만 적용되며, 잔액을 더 빨리 소진해 조기 종료될 수 있습니다."));
+    body.appendChild(el("div", { class: "muted" }, "예정 원리금(거치 중에는 이자) 위에 매월 추가 원금을 더 냅니다. 시작 회차부터 거치기간에도 적용되며, 잔액을 더 빨리 소진해 조기 종료될 수 있습니다."));
 
     // 중도상환(회차별 목돈)
     body.appendChild(el("div", { class: "subhead" }, "중도상환(회차별 목돈)"));

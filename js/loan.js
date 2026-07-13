@@ -85,6 +85,7 @@ var JF = (typeof window !== 'undefined')
     var extra = resolvedCase.extraPayment || {};
     var extraAmount = Number(extra.amount) || 0;
     var extraFrom = Math.floor(Number(extra.fromInstallment)) || 0;
+    var extraStart = extraFrom >= 1 ? extraFrom : 1; // 시작 회차 미지정(0) → 1회차부터. 거치기간 포함 적용.
 
     function effectiveAnnual(k) {
       var best = null;
@@ -119,14 +120,16 @@ var JF = (typeof window !== 'undefined')
       var date = startDate ? addMonths(startDate, k) : null;
 
       if (k <= g) {
-        // 거치: 예정 원금은 0(이자만)이지만, 중도상환(목돈)은 거치 중에도 원금을
-        // 상환해 잔액을 줄인다. 잔액 초과분은 정리(잔액 전액 상환 시 조기 종료).
+        // 거치: 예정 원금은 0(이자만)이지만, 월 추가 원금(시작 회차부터)과 중도상환(목돈)은
+        // 거치 중에도 원금을 상환해 잔액을 줄인다. 잔액 초과분은 정리(전액 상환 시 조기 종료).
+        var gExtra = (extraAmount > 0 && k >= extraStart) ? extraAmount : 0;
         var gLump = lumpAt(k);
-        var gPrincipal = gLump > B ? B : gLump;
-        var gFinal = gPrincipal >= B; // 목돈이 잔액을 모두 상환하면 종료
+        var gPrincipal = gExtra + gLump;
+        if (gPrincipal > B) gPrincipal = B;
+        var gFinal = gPrincipal >= B; // 원금 상환이 잔액을 모두 갚으면 종료
         B = B - gPrincipal;
         totalInterest += interest;
-        rows.push({ n: k, date: date, principal: gPrincipal, interest: interest, payment: interest + gPrincipal, balance: B, prepay: gPrincipal });
+        rows.push({ n: k, date: date, principal: gPrincipal, interest: interest, payment: interest + gPrincipal, balance: B, prepay: gLump });
         if (gFinal) break;
         continue;
       }
@@ -138,7 +141,7 @@ var JF = (typeof window !== 'undefined')
       }
 
       var scheduledPrincipal = A_int - interest;
-      var extraAmt = (extraAmount > 0 && k >= Math.max(extraFrom, g + 1)) ? extraAmount : 0;
+      var extraAmt = (extraAmount > 0 && k >= extraStart) ? extraAmount : 0;
       var lump = lumpAt(k);
       var principal = scheduledPrincipal + extraAmt + lump;
       var payment = interest + principal;
