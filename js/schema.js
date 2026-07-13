@@ -115,7 +115,7 @@ window.JF = window.JF || {};
       linkToFinalRate: false, // 최종금리 연동
       graceMonths: 0,         // 거치(개월) — 이자만
       startDate: null,        // "YYYY-MM-DD" 실행일(1회차=실행일+1개월)
-      extraPayment: { amount: 0, fromInstallment: 0 }, // 월 추가 원금, 시작 회차
+      extraPayment: { amount: 0, fromInstallment: 0, toInstallment: 0 }, // 월 추가 원금(시작~끝 회차, 끝 0=만기까지)
       prepayments: [],        // [{id, installment, amount(원)}] 중도상환
       rateChanges: []         // [{id, fromInstallment, annualRate(%)}] 금리변동
     };
@@ -154,10 +154,11 @@ window.JF = window.JF || {};
     state.loans.forEach(function (loanCase) {
       if (!loanCase) return;
       if (!loanCase.extraPayment || typeof loanCase.extraPayment !== 'object') {
-        loanCase.extraPayment = { amount: 0, fromInstallment: 0 };
+        loanCase.extraPayment = { amount: 0, fromInstallment: 0, toInstallment: 0 };
       } else {
         loanCase.extraPayment.amount = Number(loanCase.extraPayment.amount) || 0;
         loanCase.extraPayment.fromInstallment = Number(loanCase.extraPayment.fromInstallment) || 0;
+        loanCase.extraPayment.toInstallment = Number(loanCase.extraPayment.toInstallment) || 0;
       }
       if (!Array.isArray(loanCase.prepayments)) loanCase.prepayments = [];
       if (!Array.isArray(loanCase.rateChanges)) loanCase.rateChanges = [];

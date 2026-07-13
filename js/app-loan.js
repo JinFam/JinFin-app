@@ -107,7 +107,8 @@
     var isNew = !existingCase;
     var c = existingCase ? JSON.parse(JSON.stringify(existingCase)) : JF.schema.emptyLoanCase();
     if (isNew) c.id = uid("loan");
-    if (!c.extraPayment || typeof c.extraPayment !== "object") c.extraPayment = { amount: 0, fromInstallment: 0 };
+    if (!c.extraPayment || typeof c.extraPayment !== "object") c.extraPayment = { amount: 0, fromInstallment: 0, toInstallment: 0 };
+    if (typeof c.extraPayment.toInstallment !== "number") c.extraPayment.toInstallment = 0;
     if (!Array.isArray(c.prepayments)) c.prepayments = [];
     if (!Array.isArray(c.rateChanges)) c.rateChanges = [];
 
@@ -153,11 +154,13 @@
     body.appendChild(el("div", { class: "subhead" }, "월 상환금액(추가 원금)"));
     var extraAmountInput = el("input", { type: "number", value: man(c.extraPayment.amount), min: "0", step: "0.1", onInput: function () { c.extraPayment.amount = fromMan(extraAmountInput.value); } });
     var extraFromInput = el("input", { type: "number", value: c.extraPayment.fromInstallment, min: "0", step: "1", onInput: function () { c.extraPayment.fromInstallment = parseInt(extraFromInput.value, 10) || 0; } });
+    var extraToInput = el("input", { type: "number", value: (c.extraPayment.toInstallment || ""), min: "0", step: "1", placeholder: "만기까지", onInput: function () { c.extraPayment.toInstallment = parseInt(extraToInput.value, 10) || 0; } });
     body.appendChild(el("div", { class: "field-row" }, [
       el("label", null, "추가 원금(만원):"), extraAmountInput,
-      el("label", null, "시작 회차:"), extraFromInput
+      el("label", null, "시작 회차:"), extraFromInput,
+      el("label", null, "끝 회차:"), extraToInput
     ]));
-    body.appendChild(el("div", { class: "muted" }, "예정 원리금(거치 중에는 이자) 위에 매월 추가 원금을 더 냅니다. 시작 회차부터 거치기간에도 적용되며, 잔액을 더 빨리 소진해 조기 종료될 수 있습니다."));
+    body.appendChild(el("div", { class: "muted" }, "예정 원리금(거치 중에는 이자) 위에 시작~끝 회차 동안 매월 추가 원금을 더 냅니다. 끝 회차를 비우면 만기(또는 조기상환)까지 적용됩니다. 거치기간에도 적용되며, 잔액을 더 빨리 소진해 조기 종료될 수 있습니다."));
 
     // 중도상환(회차별 목돈)
     body.appendChild(el("div", { class: "subhead" }, "중도상환(회차별 목돈)"));

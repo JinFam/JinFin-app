@@ -86,6 +86,8 @@ var JF = (typeof window !== 'undefined')
     var extraAmount = Number(extra.amount) || 0;
     var extraFrom = Math.floor(Number(extra.fromInstallment)) || 0;
     var extraStart = extraFrom >= 1 ? extraFrom : 1; // 시작 회차 미지정(0) → 1회차부터. 거치기간 포함 적용.
+    var extraTo = Math.floor(Number(extra.toInstallment)) || 0;
+    var extraEnd = extraTo >= 1 ? extraTo : Infinity; // 끝 회차 미지정(0) → 만기(또는 조기상환)까지.
 
     function effectiveAnnual(k) {
       var best = null;
@@ -122,7 +124,7 @@ var JF = (typeof window !== 'undefined')
       if (k <= g) {
         // 거치: 예정 원금은 0(이자만)이지만, 월 추가 원금(시작 회차부터)과 중도상환(목돈)은
         // 거치 중에도 원금을 상환해 잔액을 줄인다. 잔액 초과분은 정리(전액 상환 시 조기 종료).
-        var gExtra = (extraAmount > 0 && k >= extraStart) ? extraAmount : 0;
+        var gExtra = (extraAmount > 0 && k >= extraStart && k <= extraEnd) ? extraAmount : 0;
         var gLump = lumpAt(k);
         var gPrincipal = gExtra + gLump;
         if (gPrincipal > B) gPrincipal = B;
@@ -141,7 +143,7 @@ var JF = (typeof window !== 'undefined')
       }
 
       var scheduledPrincipal = A_int - interest;
-      var extraAmt = (extraAmount > 0 && k >= extraStart) ? extraAmount : 0;
+      var extraAmt = (extraAmount > 0 && k >= extraStart && k <= extraEnd) ? extraAmount : 0;
       var lump = lumpAt(k);
       var principal = scheduledPrincipal + extraAmt + lump;
       var payment = interest + principal;
