@@ -14,7 +14,8 @@ window.JF = window.JF || {};
     { href: "expenses.html", label: "지출" },
     { href: "cards.html", label: "카드" },
     { href: "card-helper.html", label: "카드도우미" },
-    { href: "checklist.html", label: "체크리스트" }
+    { href: "checklist.html", label: "체크리스트" },
+    { href: "loan.html", label: "대출계산기" }
   ];
 
   // el(tag, attrs, children) — small DOM builder helper.
@@ -55,10 +56,48 @@ window.JF = window.JF || {};
     return node;
   }
 
-  // renderNav(activePage): injects a <nav> with 5 links, highlighting activePage
-  // (e.g. "income.html"). Safe to call more than once (replaces any existing nav).
+  // renderNav(activePage): injects a <nav> with NAV_LINKS.length links, highlighting
+  // activePage (e.g. "income.html"). Safe to call more than once (replaces any existing nav).
   // 가산금리(대출 조건). 최종금리 = 기준금리 + 가산금리. 조건이 바뀌면 이 값만 수정.
   var LOAN_SPREAD = 1.16;
+
+  // 최종금리(기준금리+가산) 노출 — 대출계산기(loan.html) 연동 케이스용.
+  // live(이번 로드에서 성공) -> localStorage 캐시(직전 성공값) -> null(둘 다 없음) 순으로 폴백.
+  var FINAL_RATE_CACHE_KEY = "jinfinance:ui:finalRate";
+  var _finalRate = null;          // 이번 페이지 로드에서 loadRefRate가 성공하면 채워짐(live)
+  var _finalRateCallbacks = [];   // onFinalRate(cb) 등록 목록
+
+  function cacheFinalRate(v) {
+    try { window.localStorage.setItem(FINAL_RATE_CACHE_KEY, String(v)); } catch (e) {}
+  }
+  function cachedFinalRate() {
+    try {
+      var raw = window.localStorage.getItem(FINAL_RATE_CACHE_KEY);
+      if (raw == null || raw === "") return null;
+      var n = parseFloat(raw);
+      return isNaN(n) ? null : n;
+    } catch (e) { return null; }
+  }
+
+  // getFinalRate(): live(이번 로드 성공값) -> localStorage 캐시 -> null.
+  function getFinalRate() {
+    if (_finalRate != null) return _finalRate;
+    return cachedFinalRate();
+  }
+
+  // onFinalRate(cb): 콜백 등록. 이미 값을 알고 있으면(live 또는 캐시) 즉시 1회 호출.
+  function onFinalRate(cb) {
+    if (typeof cb !== "function") return;
+    _finalRateCallbacks.push(cb);
+    var known = getFinalRate();
+    if (known != null) { try { cb(known); } catch (e) {} }
+  }
+
+  function setFinalRate(v) {
+    _finalRate = v;
+    cacheFinalRate(v);
+    _finalRateCallbacks.forEach(function (cb) { try { cb(v); } catch (e) {} });
+  }
 
   // 등락 표기: 상승 ▲, 하락 ▼, 보합 ─ (기준 대비 %p).
   function refDelta(cur, ref) {
@@ -87,10 +126,11 @@ window.JF = window.JF || {};
         .then(function (r) { return r && r.ok ? r.json() : null; })
         .then(function (d) {
           if (!d || !d.rate) return;
-          var host = document.getElementById("jf-ref-rate");
-          if (!host) return;
           var unit = d.unit || "%";
           var cur = parseFloat(d.rate);
+          if (!isNaN(cur)) setFinalRate(cur + LOAN_SPREAD); // live 값 저장+캐시+콜백(대출계산기 연동)
+          var host = document.getElementById("jf-ref-rate");
+          if (!host) return;
           host.textContent = "";
           host.appendChild(el("span", { class: "jf-ref-base" },
             (d.label || "금융채 6개월") + " " + d.rate + unit));
@@ -199,6 +239,8 @@ window.JF = window.JF || {};
     showBanner: showBanner,
     hideBanner: hideBanner,
     money: money,
-    el: el
+    el: el,
+    getFinalRate: getFinalRate,
+    onFinalRate: onFinalRate
   };
 })();

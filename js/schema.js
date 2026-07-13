@@ -103,6 +103,24 @@ window.JF = window.JF || {};
   function emptyDetail() { return { id: '', text: '', checked: false }; }
   function emptyMemo() { return { id: '', text: '' }; }
 
+  // ---- 대출계산기 -----------------------------------------------------
+  // 금액: 원(정수). annualRate: %(예 4.45). linkToFinalRate=true면 계산 시 최종금리로 해석(호출자 책임).
+  function emptyLoanCase() {
+    return {
+      id: '',
+      name: '',
+      amount: 0,              // 원
+      termMonths: 0,          // 총 개월수(거치 포함)
+      annualRate: 0,          // %
+      linkToFinalRate: false, // 최종금리 연동
+      graceMonths: 0,         // 거치(개월) — 이자만
+      startDate: null,        // "YYYY-MM-DD" 실행일(1회차=실행일+1개월)
+      extraPayment: { amount: 0, fromInstallment: 0 }, // 월 추가 원금, 시작 회차
+      prepayments: [],        // [{id, installment, amount(원)}] 중도상환
+      rateChanges: []         // [{id, fromInstallment, annualRate(%)}] 금리변동
+    };
+  }
+
   // schemaVersion 확인/업그레이드 + 상시 정규화(로드된 구버전 상태 보정).
   function migrate(state) {
     if (!state) return state;
@@ -130,6 +148,25 @@ window.JF = window.JF || {};
     };
     (state.expenses || []).forEach(normRec);
     (state.specials || []).forEach(normRec);
+
+    // 대출계산기 배열 보장 + 케이스 하위필드 정규화(동기화/구버전으로 유입된 부분 데이터 방어).
+    if (!Array.isArray(state.loans)) state.loans = [];
+    state.loans.forEach(function (loanCase) {
+      if (!loanCase) return;
+      if (!loanCase.extraPayment || typeof loanCase.extraPayment !== 'object') {
+        loanCase.extraPayment = { amount: 0, fromInstallment: 0 };
+      } else {
+        loanCase.extraPayment.amount = Number(loanCase.extraPayment.amount) || 0;
+        loanCase.extraPayment.fromInstallment = Number(loanCase.extraPayment.fromInstallment) || 0;
+      }
+      if (!Array.isArray(loanCase.prepayments)) loanCase.prepayments = [];
+      if (!Array.isArray(loanCase.rateChanges)) loanCase.rateChanges = [];
+      var termMonths = Number(loanCase.termMonths) || 0;
+      var maxGrace = Math.max(0, termMonths - 1);
+      var grace = Number(loanCase.graceMonths) || 0;
+      loanCase.graceMonths = Math.max(0, Math.min(maxGrace, grace));
+    });
+
     return state;
   }
 
@@ -146,6 +183,7 @@ window.JF = window.JF || {};
     emptyChecklistItem: emptyChecklistItem,
     emptyDetail: emptyDetail,
     emptyMemo: emptyMemo,
+    emptyLoanCase: emptyLoanCase,
     migrate: migrate
   };
 
