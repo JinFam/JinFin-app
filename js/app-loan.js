@@ -12,7 +12,29 @@
   var compareCollapsed = true; // "대출 비교" 펼치기/접기(기본 접힘)
 
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 8); }
-  function save() { JF.store.save(state); render(); }
+  function save() {
+    JF.store.save(state);
+    render();
+    if (JF.ui && typeof JF.ui.refreshRepPayment === "function") JF.ui.refreshRepPayment();
+  }
+
+  // 케이스 목록/헤더 표기용 이율 문자열(연동이면 실제 연동 금리, 미확인 시 수동 폴백).
+  function rateDisplay(c) {
+    if (c.linkToFinalRate) {
+      var f = (JF.ui && typeof JF.ui.getFinalRate === "function") ? JF.ui.getFinalRate() : null;
+      if (f != null) return "연동 " + Number(f).toFixed(2) + "%";
+      return "연동(수동 " + (Number(c.annualRate) || 0).toFixed(2) + "%)";
+    }
+    return (c.annualRate != null ? Number(c.annualRate).toFixed(2) + "%" : "-");
+  }
+
+  // 대표 대출 지정/해제(기기 로컬). 지정 시 상단 헤더에 예상 원리금 표기.
+  function toggleRep(id) {
+    if (!JF.ui || typeof JF.ui.setRepresentativeLoan !== "function") return;
+    var cur = JF.ui.getRepresentativeLoan();
+    JF.ui.setRepresentativeLoan(cur === id ? null : id);
+    render();
+  }
   function man(n) { return JF.format.toMan(n); }
   function fromMan(m) { return JF.format.fromMan(m); }
   function won(n) { return JF.format.formatWon(n) + "원"; }
@@ -54,6 +76,9 @@
     if (selectedCaseId === id) selectedCaseId = null;
     var idx = compareIds.indexOf(id);
     if (idx !== -1) compareIds.splice(idx, 1);
+    if (JF.ui && typeof JF.ui.getRepresentativeLoan === "function" && JF.ui.getRepresentativeLoan() === id) {
+      JF.ui.setRepresentativeLoan(null); // 대표로 지정된 케이스 삭제 → 헤더 표기 해제
+    }
     save();
   }
 
@@ -105,13 +130,25 @@
       el("label", null, "대출 실행일:"), startInput
     ]));
 
-    var linkCb = el("input", { type: "checkbox", checked: !!c.linkToFinalRate, onChange: function () { c.linkToFinalRate = linkCb.checked; } });
-    var rateInput = el("input", { type: "number", value: c.annualRate, min: "0", step: "0.01", onInput: function () { c.annualRate = parseFloat(rateInput.value) || 0; } });
+    var linkCb = el("input", { type: "checkbox", checked: !!c.linkToFinalRate, onChange: function () { c.linkToFinalRate = linkCb.checked; syncRateField(); } });
+    // 연동 시 입력을 잠그되 c.annualRate(수동 폴백값)는 보존한다 → onInput은 미연동일 때만 기록.
+    var rateInput = el("input", { type: "number", value: c.annualRate, min: "0", step: "0.01", onInput: function () { if (!c.linkToFinalRate) c.annualRate = parseFloat(rateInput.value) || 0; } });
+    function syncRateField() {
+      if (c.linkToFinalRate) {
+        var f = (JF.ui && typeof JF.ui.getFinalRate === "function") ? JF.ui.getFinalRate() : null;
+        rateInput.disabled = true;
+        rateInput.value = (f != null ? Number(f).toFixed(2) : (Number(c.annualRate) || 0));
+      } else {
+        rateInput.disabled = false;
+        rateInput.value = c.annualRate;
+      }
+    }
+    syncRateField();
     body.appendChild(el("div", { class: "field-row" }, [
       linkCb, el("span", { class: "muted" }, "최종금리 연동"),
       el("label", null, "연이자율(%):"), rateInput
     ]));
-    body.appendChild(el("div", { class: "muted" }, "연동 체크 시 상단 최종금리(기준금리+가산)를 사용합니다. 아직 못 불러왔으면 위 연이자율(수동 입력값)을 임시로 사용합니다."));
+    body.appendChild(el("div", { class: "muted" }, "연동 체크 시 상단 최종금리(기준금리+가산)로 계산되며 연이자율 입력이 잠깁니다. 최종금리를 못 불러온 환경(file:// 등)에서는 아래 수동 입력값을 임시로 사용합니다."));
 
     body.appendChild(el("div", { class: "subhead" }, "월 상환금액(추가 원금)"));
     var extraAmountInput = el("input", { type: "number", value: man(c.extraPayment.amount), min: "0", step: "0.1", onInput: function () { c.extraPayment.amount = fromMan(extraAmountInput.value); } });
@@ -188,28 +225,32 @@
   function caseRow(c) {
     var checked = compareIds.indexOf(c.id) !== -1;
     var compareCb = el("input", { type: "checkbox", checked: checked, onChange: function () { toggleCompare(c.id); } });
+    var isRep = !!(JF.ui && typeof JF.ui.getRepresentativeLoan === "function" && JF.ui.getRepresentativeLoan() === c.id);
     return el("tr", null, [
       el("td", null, c.name || "(이름 없음)"),
       el("td", { class: "num" }, won(c.amount)),
       el("td", { class: "num" }, c.termMonths + "개월"),
-      el("td", { class: "num" }, (c.linkToFinalRate ? "연동 " : "") + (c.annualRate != null ? Number(c.annualRate).toFixed(2) + "%" : "-")),
+      el("td", { class: "num" }, rateDisplay(c)),
       el("td", null, c.startDate || "-"),
       el("td", null, [
         el("button", { class: "btn btn-sm btn-primary", onClick: function () { selectedCaseId = c.id; calcCollapsed = false; render(); } }, "대출 계산"),
         el("button", { class: "btn btn-sm btn-secondary", onClick: function () { editingId = c.id; render(); } }, "편집"),
         el("button", { class: "btn btn-sm btn-danger", onClick: function () { removeCase(c.id); } }, "삭제")
       ]),
-      el("td", { class: "text-center" }, [compareCb, el("span", { class: "muted" }, " 비교")])
+      el("td", { class: "text-center" }, [compareCb, el("span", { class: "muted" }, " 비교")]),
+      el("td", { class: "text-center" },
+        el("button", { class: "btn btn-sm " + (isRep ? "btn-primary" : "btn-ghost"), onClick: function () { toggleRep(c.id); } },
+          isRep ? "★ 대표" : "대표 지정"))
     ]);
   }
 
   function renderCaseListCard() {
     var list = state.loans || [];
     var thead = el("thead", null, el("tr", null,
-      ["이름", "금액", "기간", "연이자율", "실행일", "작업", "비교(최대 3)"].map(function (h) { return el("th", null, h); })));
+      ["이름", "금액", "기간", "연이자율", "실행일", "작업", "비교(최대 3)", "대표 대출"].map(function (h) { return el("th", null, h); })));
     var tbody = list.length
       ? el("tbody", null, list.map(caseRow))
-      : el("tbody", null, el("tr", null, el("td", { class: "muted", colspan: "7" }, "등록된 대출 케이스가 없습니다. 위 [+ 케이스 추가]로 등록하세요.")));
+      : el("tbody", null, el("tr", null, el("td", { class: "muted", colspan: "8" }, "등록된 대출 케이스가 없습니다. 위 [+ 케이스 추가]로 등록하세요.")));
 
     return el("div", { class: "card" }, [
       el("div", { class: "card-header" }, el("span", { class: "card-title" }, "케이스 목록")),

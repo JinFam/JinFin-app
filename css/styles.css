@@ -241,6 +241,10 @@ body.jf-has-banner .jf-nav {
 .jf-ref-base  { color: var(--jf-primary); font-weight: 600; }
 .jf-ref-delta { color: var(--jf-text-muted); font-weight: 500; }
 .jf-ref-final { color: var(--jf-primary); font-weight: 800; }
+.jf-ref-payment:empty { display: none; }   /* 대표 대출 미지정 시 자리 안 차지 */
+.jf-ref-pay-label { color: var(--jf-text-muted); font-weight: 600; }
+.jf-ref-pay-val   { color: var(--jf-success); font-weight: 800; }
+.jf-ref-pay-live  { color: var(--jf-success); font-weight: 600; }
 
 .jf-nav-list {
   list-style: none;

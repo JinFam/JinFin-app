@@ -97,6 +97,61 @@ window.JF = window.JF || {};
     _finalRate = v;
     cacheFinalRate(v);
     _finalRateCallbacks.forEach(function (cb) { try { cb(v); } catch (e) {} });
+    renderRepPayment(); // 최종금리 변동 → 연동된 대표 대출 원리금 실시간 갱신
+  }
+
+  // ---- 대표 대출(헤더 예상 원리금) — 기기 로컬 선택(동기화 안 함, finalRate 캐시와 동일 패턴) ----
+  var REP_KEY = "jinfinance:loan:repId";
+  function getRepresentativeLoan() {
+    try { return window.localStorage.getItem(REP_KEY) || null; } catch (e) { return null; }
+  }
+  function setRepresentativeLoan(id) {
+    try {
+      if (id) window.localStorage.setItem(REP_KEY, id);
+      else window.localStorage.removeItem(REP_KEY);
+    } catch (e) {}
+    renderRepPayment();
+  }
+
+  // 케이스 이율 해석: 연동이면 최종금리(없으면 수동값), 아니면 수동값. (app-loan.resolveRate와 동일 규칙)
+  function resolveCaseRate(c) {
+    if (c && c.linkToFinalRate) {
+      var f = getFinalRate();
+      if (f != null) return f;
+    }
+    return (c && Number(c.annualRate)) || 0;
+  }
+
+  // renderRepPayment(): 대표 대출의 월 원리금을 브랜드 아래(최종금리 옆 줄)에 표기.
+  // JF.loan(순수 엔진)·JF.store 가 로드된 페이지에서만 계산(모든 페이지에 loan.js 로드됨).
+  function renderRepPayment() {
+    var host = document.getElementById("jf-ref-payment");
+    if (!host) return;
+    host.textContent = "";
+    var id = getRepresentativeLoan();
+    if (!id || !JF.loan || typeof JF.loan.computeSchedule !== "function" || !JF.store) return;
+    var state;
+    try { state = JF.store.load(); } catch (e) { return; }
+    var loans = (state && state.loans) || [];
+    var c = null;
+    for (var i = 0; i < loans.length; i++) { if (loans[i].id === id) { c = loans[i]; break; } }
+    if (!c) return; // 대표로 지정한 케이스가 삭제됨 → 표기 없음
+    var rate = resolveCaseRate(c);
+    var out = JF.loan.computeSchedule({
+      amount: c.amount, termMonths: c.termMonths, annualRate: rate, graceMonths: c.graceMonths,
+      startDate: c.startDate, extraPayment: c.extraPayment || { amount: 0, fromInstallment: 0 },
+      prepayments: c.prepayments || [], rateChanges: c.rateChanges || []
+    });
+    var pay = out.summary.firstMonthlyPayment;
+    if (!pay) return;
+    var live = !!(c.linkToFinalRate && getFinalRate() != null);
+    var wonStr = (JF.format && JF.format.formatWon) ? JF.format.formatWon(pay) : String(pay);
+    host.appendChild(el("span", { class: "jf-ref-pay-label" },
+      (c.name ? c.name : "대표대출") + " 예상 원리금 "));
+    host.appendChild(el("span", { class: "jf-ref-pay-val" }, wonStr + "원"));
+    if (live) host.appendChild(el("span", { class: "jf-ref-pay-live" }, " (실시간)"));
+    host.title = (c.name || "대표대출") + " · 연 " + Number(rate).toFixed(2) + "% · 월 원리금 " + wonStr + "원"
+      + (live ? " (최종금리 연동)" : "");
   }
 
   // 등락 표기: 상승 ▲, 하락 ▼, 보합 ─ (기준 대비 %p).
@@ -179,7 +234,8 @@ window.JF = window.JF || {};
 
     var brandbox = el("div", { class: "jf-nav-brandbox" }, [
       el("span", { class: "jf-nav-brand" }, "JinFinance"),
-      el("span", { id: "jf-ref-rate", class: "jf-ref-rate" })   // 금융채 6개월 기준금리(rate.json 비동기 로드)
+      el("span", { id: "jf-ref-rate", class: "jf-ref-rate" }),   // 금융채 6개월 기준금리(rate.json 비동기 로드)
+      el("span", { id: "jf-ref-payment", class: "jf-ref-rate jf-ref-payment" })  // 대표 대출 예상 원리금
     ]);
 
     var nav = el("nav", { id: NAV_ID, class: "jf-nav" }, [
@@ -191,6 +247,7 @@ window.JF = window.JF || {};
       document.body.insertBefore(nav, document.body.firstChild);
     }
     loadRefRate();
+    renderRepPayment();
     return nav;
   }
 
@@ -241,6 +298,9 @@ window.JF = window.JF || {};
     money: money,
     el: el,
     getFinalRate: getFinalRate,
-    onFinalRate: onFinalRate
+    onFinalRate: onFinalRate,
+    getRepresentativeLoan: getRepresentativeLoan,
+    setRepresentativeLoan: setRepresentativeLoan,
+    refreshRepPayment: renderRepPayment
   };
 })();
