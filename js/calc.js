@@ -75,10 +75,52 @@ var JF = (typeof window !== 'undefined')
   }
 
   // ============================================================
-  // 5.1 effectiveValueFor — 커버 플로어(MF1) + installment
+  // 대출(loan) 지출 항목 식별 — state.loanExpenses[]의 원소.
+  // recurrence 필드가 없고 mode가 'manual'|'auto'이며 manualSegments 배열을 갖는다.
+  // (특수 항목의 'fixedMonthly'/'installment'와 구분됨.)
+  // loanSchedules는 항상 호출부(js/ui.js:buildLoanSchedules)에서 미리 계산해 인자로 주입한다
+  // — calc.js는 조회만 하며 DOM/JF.loan/JF.ui를 참조하지 않는다(순수성 유지).
   // ============================================================
 
-  function effectiveValueFor(item, month) {
+  function isLoanExpense(item) {
+    return !!item && (item.mode === 'manual' || item.mode === 'auto') && Array.isArray(item.manualSegments);
+  }
+
+  // ============================================================
+  // 5.1 effectiveValueFor — 커버 플로어(MF1) + installment + 대출(loan)
+  // ============================================================
+
+  function effectiveValueFor(item, month, loanSchedules) {
+    loanSchedules = loanSchedules || {};
+
+    if (isLoanExpense(item)) {
+      if (item.mode === 'manual') {
+        // manualSegments를 배열 순서대로 순회 — fromMonth<=month<=toMonth인 첫 구간 사용.
+        // 겹치는 구간이 있으면 first-match-wins(배열상 먼저 나오는 구간의 금액), 나머지는 무시.
+        var segs = item.manualSegments || [];
+        for (var si = 0; si < segs.length; si++) {
+          var seg = segs[si];
+          if (seg && seg.fromMonth && seg.toMonth &&
+              cmpYm(month, seg.fromMonth) >= 0 && cmpYm(month, seg.toMonth) <= 0) {
+            var mAmt = Number(seg.amount) || 0;
+            return { plannedAmount: mAmt, actualAmount: mAmt };
+          }
+        }
+        return { plannedAmount: 0, actualAmount: 0 }; // 구간 밖 = 0원
+      }
+      // mode==='auto': loanId가 가리키는 케이스 스케줄에서 해당 월의 payment를 대입.
+      // 매칭 없으면 0(대출 시작 전/상환 완료 후) — 고아 loanId(스케줄에 없음)도 0.
+      var rows = loanSchedules[item.loanId] || [];
+      for (var ri = 0; ri < rows.length; ri++) {
+        var row = rows[ri];
+        if (row && row.date && row.date.slice(0, 7) === month) {
+          var pAmt = Number(row.payment) || 0;
+          return { plannedAmount: pAmt, actualAmount: pAmt };
+        }
+      }
+      return { plannedAmount: 0, actualAmount: 0 };
+    }
+
     if (item.mode === 'installment') {
       var inst = item.installment;
       if (cmpYm(month, inst.startMonth) >= 0 && cmpYm(month, inst.endMonth) <= 0) {
@@ -116,8 +158,8 @@ var JF = (typeof window !== 'undefined')
   // 5.2 monthlyValueFor — 현금흐름 selector (과거=actual 잠금, 현재/미래=planned)
   // ============================================================
 
-  function monthlyValueFor(item, month, currentMonth) {
-    var ev = effectiveValueFor(item, month);
+  function monthlyValueFor(item, month, currentMonth, loanSchedules) {
+    var ev = effectiveValueFor(item, month, loanSchedules);
     var actual = hasOwn(item.actualsByMonth, month) ? item.actualsByMonth[month] : ev.actualAmount;
     if (cmpYm(month, currentMonth) < 0) {
       return nvl(actual, ev.plannedAmount);
@@ -129,8 +171,8 @@ var JF = (typeof window !== 'undefined')
   // 5.2b performanceValueFor — 실적 selector (ACTUAL-first, 게이트 없음, MF2)
   // ============================================================
 
-  function performanceValueFor(item, month) {
-    var ev = effectiveValueFor(item, month);
+  function performanceValueFor(item, month, loanSchedules) {
+    var ev = effectiveValueFor(item, month, loanSchedules);
     var byMonth = hasOwn(item.actualsByMonth, month) ? item.actualsByMonth[month] : undefined;
     return nvl(byMonth, nvl(ev.actualAmount, ev.plannedAmount));
   }
@@ -139,7 +181,29 @@ var JF = (typeof window !== 'undefined')
   // 5.3 occursIn — 반복 규칙 전개 (+ installment 자체 기간 처리)
   // ============================================================
 
-  function occursIn(item, month) {
+  function occursIn(item, month, loanSchedules) {
+    loanSchedules = loanSchedules || {};
+
+    // 대출(loan) 항목은 recurrence 필드가 없으므로 반드시 여기서 조기 판정.
+    // (이 분기를 빠뜨리면 아래 `if (!rec) return false`로 떨어져 영구 미발생 처리됨.)
+    if (isLoanExpense(item)) {
+      if (item.mode === 'manual') {
+        var segs = item.manualSegments || [];
+        for (var si = 0; si < segs.length; si++) {
+          var seg = segs[si];
+          if (seg && seg.fromMonth && seg.toMonth &&
+              cmpYm(month, seg.fromMonth) >= 0 && cmpYm(month, seg.toMonth) <= 0) return true;
+        }
+        return false;
+      }
+      // auto: 스케줄에 해당 월(date의 YYYY-MM) 행이 있으면 발생.
+      var rows = loanSchedules[item.loanId] || [];
+      for (var ri = 0; ri < rows.length; ri++) {
+        if (rows[ri] && rows[ri].date && rows[ri].date.slice(0, 7) === month) return true;
+      }
+      return false;
+    }
+
     if (item.mode === 'installment' && item.installment) {
       return cmpYm(month, item.installment.startMonth) >= 0 && cmpYm(month, item.installment.endMonth) <= 0;
     }
@@ -222,7 +286,8 @@ var JF = (typeof window !== 'undefined')
   // 5.4 rollforward — 3-track 단일 루프(MF3): balHybrid/balPlan/balActual
   // ============================================================
 
-  function rollforward(state, currentMonth) {
+  function rollforward(state, currentMonth, loanSchedules) {
+    loanSchedules = loanSchedules || {};
     var horizon = state.meta.horizon;
     var months = ymRangeLocal(horizon.start, horizon.end);
 
@@ -230,7 +295,8 @@ var JF = (typeof window !== 'undefined')
     var balPlan = state.account.seedBalance;
     var balActual = state.account.seedBalance;
 
-    var allItems = [].concat(state.expenses || [], state.specials || []);
+    // 대출(loanExpenses) 항목도 다른 지출과 동일하게 잔액 롤포워드에 포함.
+    var allItems = [].concat(state.expenses || [], state.specials || [], state.loanExpenses || []);
     var bonuses = (state.income && state.income.bonusEvents) || [];
     var extraIncomes = (state.income && state.income.extraIncomes) || [];
 
@@ -276,15 +342,16 @@ var JF = (typeof window !== 'undefined')
       }
 
       var expenseHybrid = 0, expensePlan = 0, expenseActual = 0;
-      var breakdown = { salary: salary, bonus: bonusCashSum, extra: extraCashSum, 고정: 0, 생활: 0, 교육: 0, 특수: 0, 추가: 0 };
+      // 대출: 0 — 대출 항목은 type 필드가 없어 이 맵으로 집계되지 않음(개별행 전용). 일관성 위해 키만 유지.
+      var breakdown = { salary: salary, bonus: bonusCashSum, extra: extraCashSum, 고정: 0, 생활: 0, 교육: 0, 특수: 0, 추가: 0, 대출: 0 };
       var itemVariance = [];
 
       for (var ii = 0; ii < allItems.length; ii++) {
         var item = allItems[ii];
-        if (!occursIn(item, month)) continue;
+        if (!occursIn(item, month, loanSchedules)) continue;
 
-        var hybridVal = monthlyValueFor(item, month, currentMonth);
-        var ev2 = effectiveValueFor(item, month);
+        var hybridVal = monthlyValueFor(item, month, currentMonth, loanSchedules);
+        var ev2 = effectiveValueFor(item, month, loanSchedules);
         var plannedVal = ev2.plannedAmount;
         var actualByMonth = hasOwn(item.actualsByMonth, month) ? item.actualsByMonth[month] : undefined;
         var actualVal = nvl(actualByMonth, nvl(ev2.actualAmount, plannedVal));
@@ -352,8 +419,10 @@ var JF = (typeof window !== 'undefined')
   // 5.5 performance — 카드별 산정기간 실적 합산 (ACTUAL-first)
   // ============================================================
 
-  function performance(state, card, windowKey) {
-    var allItems = [].concat(state.expenses || [], state.specials || []);
+  function performance(state, card, windowKey, loanSchedules) {
+    loanSchedules = loanSchedules || {};
+    // 대출(loanExpenses) 항목의 카드/실적 토글도 실제로 게이지에 반영되도록 포함.
+    var allItems = [].concat(state.expenses || [], state.specials || [], state.loanExpenses || []);
     var months = ymRangeLocal(state.meta.horizon.start, state.meta.horizon.end);
     var sum = 0;
 
@@ -366,12 +435,12 @@ var JF = (typeof window !== 'undefined')
 
       for (var j = 0; j < months.length; j++) {
         var month = months[j];
-        if (!occursIn(item, month)) continue;
+        if (!occursIn(item, month, loanSchedules)) continue;
 
         var d = chargeDate(month, item.chargeDay);
         var wk = windowKeyFor(card, d);
         if (wk === windowKey) {
-          sum += performanceValueFor(item, month);
+          sum += performanceValueFor(item, month, loanSchedules);
         }
       }
     }
@@ -383,8 +452,8 @@ var JF = (typeof window !== 'undefined')
   // 5.5 gaugeFor
   // ============================================================
 
-  function gaugeFor(state, card, windowKey) {
-    var earned = performance(state, card, windowKey);
+  function gaugeFor(state, card, windowKey, loanSchedules) {
+    var earned = performance(state, card, windowKey, loanSchedules);
     var primary = null;
     var conds = card.performanceConditions || [];
     for (var i = 0; i < conds.length; i++) {

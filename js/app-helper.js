@@ -5,6 +5,7 @@
   var JF = window.JF;
   var el = JF.ui.el;
   var state;
+  var loanSchedules = {}; // render()에서 재계산 — 자동 모드 대출 항목의 실적 게이지 반영용
 
   function man(n) { return JF.format.toMan(n); }
   function today() { return new Date(); } // 앱 계층에서 실제 오늘(윈도우 판정용) — calc는 순수 유지
@@ -25,7 +26,7 @@
   // ---- 실적 게이지 (AC-5.1, 5.2) -------------------------------------
   function gaugeCard(card, now) {
     var wk = JF.calc.windowKeyFor(card, now);
-    var g = JF.calc.gaugeFor(state, card, wk);
+    var g = JF.calc.gaugeFor(state, card, wk, loanSchedules);
     var pct = g.threshold > 0 ? Math.min(100, Math.round((g.earned / g.threshold) * 100)) : (g.met ? 100 : 0);
     var endDate = windowEndDate(card, wk);
     var daysLeft = Math.ceil((endDate - now) / 86400000);
@@ -66,8 +67,8 @@
     var cards = (state.cards || []).slice();
     // 미달/마감임박 우선 정렬
     cards.sort(function (a, b) {
-      var ga = JF.calc.gaugeFor(state, a, JF.calc.windowKeyFor(a, now));
-      var gb = JF.calc.gaugeFor(state, b, JF.calc.windowKeyFor(b, now));
+      var ga = JF.calc.gaugeFor(state, a, JF.calc.windowKeyFor(a, now), loanSchedules);
+      var gb = JF.calc.gaugeFor(state, b, JF.calc.windowKeyFor(b, now), loanSchedules);
       if (ga.met !== gb.met) return ga.met ? 1 : -1;      // 미달 먼저
       return gb.remaining - ga.remaining;                 // 남은 실적 큰 것 먼저
     });
@@ -89,7 +90,7 @@
     });
 
     // 실적 미충족이면 우선순위 상승(전월실적 채우기)
-    var g = JF.calc.gaugeFor(state, card, JF.calc.windowKeyFor(card, now));
+    var g = JF.calc.gaugeFor(state, card, JF.calc.windowKeyFor(card, now), loanSchedules);
     if (!g.met) {
       var help = Math.min(40, Math.round((Math.min(amountWon, g.remaining) / Math.max(1, g.threshold)) * 40));
       score += 10 + help;
@@ -142,6 +143,7 @@
   }
 
   function render() {
+    loanSchedules = (JF.ui && typeof JF.ui.buildLoanSchedules === "function") ? JF.ui.buildLoanSchedules(state) : {};
     renderRecommender();
     renderGauges();
     document.getElementById("helper-note").textContent =

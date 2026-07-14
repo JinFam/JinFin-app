@@ -103,6 +103,29 @@ window.JF = window.JF || {};
   function emptyDetail() { return { id: '', text: '', checked: false }; }
   function emptyMemo() { return { id: '', text: '' }; }
 
+  // ---- 대출(loan) 지출 항목 --------------------------------------------
+  // state.loanExpenses[]의 원소. ⚠️ state.loans(대출계산기 케이스 설정)와는 다른 개념 —
+  // loanExpenses는 "대출" 지출 탭의 항목(월별 원리금 지출), state.loans는 상환 스케줄을
+  // 만드는 계산기 입력값이다. auto 모드일 때 loanId로 state.loans[].id를 참조한다.
+  //  - mode 'manual': manualSegments의 각 구간(fromMonth<=month<=toMonth)에 amount 적용,
+  //    구간 밖은 0원. 겹치는 구간은 배열 순서상 first-match-wins.
+  //  - mode 'auto': loanId가 가리키는 state.loans 케이스의 회차별 상환액(payment)을 월별로 대입.
+  function emptyLoanExpenseItem() {
+    return {
+      id: '',
+      name: '',
+      mode: 'manual',        // 'manual' | 'auto'
+      manualSegments: [],    // [{ id, fromMonth: 'YYYY-MM', toMonth: 'YYYY-MM', amount: 0 }] — 구간 밖은 0원
+      loanId: null,          // mode==='auto'일 때 state.loans[].id 참조
+      category: '',
+      actualsByMonth: {},
+      pastLock: true,
+      assignedCardId: null,
+      chargeDay: null,
+      countsTowardPerformance: false
+    };
+  }
+
   // ---- 대출계산기 -----------------------------------------------------
   // 금액: 원(정수). annualRate: %(예 4.45). linkToFinalRate=true면 계산 시 최종금리로 해석(호출자 책임).
   function emptyLoanCase() {
@@ -140,6 +163,8 @@ window.JF = window.JF || {};
     // D-Day 체크리스트 배열 + meta 보장(meta가 없을 수 있는 구버전 대비)
     if (!state.meta || typeof state.meta !== 'object') state.meta = {};
     if (!Array.isArray(state.checklists)) state.checklists = [];
+    // "대출" 지출 탭 항목 배열 보장(구버전/미필드 상태 방어). state.loans(대출계산기)와 별개.
+    if (!Array.isArray(state.loanExpenses)) state.loanExpenses = [];
     // 레거시 quarterly → interval(매 3개월)로 정규화(UI가 interval만 노출)
     var normRec = function (it) {
       if (it && it.recurrence && it.recurrence.kind === 'quarterly') {
@@ -184,6 +209,7 @@ window.JF = window.JF || {};
     emptyChecklistItem: emptyChecklistItem,
     emptyDetail: emptyDetail,
     emptyMemo: emptyMemo,
+    emptyLoanExpenseItem: emptyLoanExpenseItem,
     emptyLoanCase: emptyLoanCase,
     migrate: migrate
   };

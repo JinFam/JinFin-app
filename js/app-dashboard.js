@@ -7,20 +7,21 @@
   var state;
   var mode = "hybrid"; // hybrid | plan | actual
   var showVar = false;
+  var loanSchedules = {}; // 자동 모드 대출 항목용 스케줄 맵(render() 시작부에서 재계산)
 
   function man(n) { return JF.format.toMan(n); }           // 원 -> 만원(정수)
   function manCell(n) { return JF.format.formatManNum(n); } // 콤마+천원 소수, "만" 없음(호출부가 붙임/셀은 바)
 
   // ---- 항목별 월 셀 값 (모드에 따라 selector 전환) --------------------
   function cellFor(item, month) {
-    if (!JF.calc.occursIn(item, month)) return null;
-    if (mode === "plan") return JF.calc.effectiveValueFor(item, month).plannedAmount;
+    if (!JF.calc.occursIn(item, month, loanSchedules)) return null;
+    if (mode === "plan") return JF.calc.effectiveValueFor(item, month, loanSchedules).plannedAmount;
     if (mode === "actual") {
-      var ev = JF.calc.effectiveValueFor(item, month);
+      var ev = JF.calc.effectiveValueFor(item, month, loanSchedules);
       var a = item.actualsByMonth && item.actualsByMonth[month];
       return (a != null) ? a : (ev.actualAmount != null ? ev.actualAmount : ev.plannedAmount);
     }
-    return JF.calc.monthlyValueFor(item, month, state.meta.currentMonth); // hybrid
+    return JF.calc.monthlyValueFor(item, month, state.meta.currentMonth, loanSchedules); // hybrid
   }
 
   function salaryFor(month) {
@@ -219,8 +220,15 @@
     tbody.appendChild(dataRow("성과급", bonusVals, { href: "income.html#bonus-card" }));
     tbody.appendChild(dataRow("추가 수입", extraVals, { href: "income.html#extra-card" }));
 
-    // 지출 — 특수(개별, 강조) + 고정/생활/교육/추가
+    // 지출 — 대출(개별, 강조) + 특수(개별, 강조) + 고정/생활/교육/추가
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "지출")]));
+    // 대출 개별행(탭 순서와 동일하게 특수보다 위). 특수처럼 집계 제외, 개별행 전용.
+    (state.loanExpenses || []).forEach(function (li) {
+      var vals = {};
+      months.forEach(function (m) { var v = cellFor(li, m); if (v != null) vals[m] = v; });
+      tbody.appendChild(dataRow(li.name, vals, { rowClass: "row-highlight",
+        href: "expenses.html?tab=" + encodeURIComponent("대출") + "&open=" + encodeURIComponent(li.id) }));
+    });
     (state.specials || []).forEach(function (sp) {
       var vals = {};
       months.forEach(function (m) { var v = cellFor(sp, m); if (v != null) vals[m] = v; });
@@ -248,7 +256,8 @@
     rows.forEach(function (r) {
       var m = r.month;
       var exp = 0;
-      (state.expenses || []).concat(state.specials || []).forEach(function (it) {
+      // 대출(loanExpenses)도 포함 — rollforward 기반 '통장 잔액'과 '비용 합계'/'총계' 숫자가 어긋나지 않게.
+      (state.expenses || []).concat(state.specials || []).concat(state.loanExpenses || []).forEach(function (it) {
         var v = cellFor(it, m); if (v != null) exp += v;
       });
       expenseVals[m] = exp;
@@ -270,6 +279,11 @@
         (r.itemVariance || []).forEach(function (iv) { vmap[r.month][iv.id] = iv.variance; });
       });
       tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "항목별 계획−실제 차이 (양수=계획보다 덜 씀)")]));
+      (state.loanExpenses || []).forEach(function (li) {
+        var vv = {}, any = false;
+        months.forEach(function (m) { if (vmap[m] && vmap[m][li.id] != null) { vv[m] = vmap[m][li.id]; any = true; } });
+        if (any) tbody.appendChild(dataRow(li.name, vv, { negative: true, rowClass: "row-highlight" }));
+      });
       (state.specials || []).forEach(function (sp) {
         var vv = {}, any = false;
         months.forEach(function (m) { if (vmap[m] && vmap[m][sp.id] != null) { vv[m] = vmap[m][sp.id]; any = true; } });
@@ -294,7 +308,9 @@
   }
 
   function render() {
-    var rows = JF.calc.rollforward(state, state.meta.currentMonth);
+    // 자동 모드 대출 항목의 월별 금액을 rollforward/셀 계산에 반영하려면 먼저 스케줄을 만든다.
+    loanSchedules = JF.ui.buildLoanSchedules(state);
+    var rows = JF.calc.rollforward(state, state.meta.currentMonth, loanSchedules);
     renderKpis(rows);
     renderControls();
     renderTable(rows);

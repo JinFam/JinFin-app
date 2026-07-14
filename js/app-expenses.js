@@ -9,6 +9,7 @@
   var tab = "고정";           // 고정 | 생활 | 교육 | 특수
   var openId = null;          // 편집 열린 항목 id
   var perfMonth = null;       // 실적 패널 선택 월(YYYY-MM) — 재렌더시 유지(사용자 선택 보존)
+  var loanSchedules = {};     // 자동 모드 대출 항목용 스케줄 맵(render() 시작부에서 재계산)
 
   var CAT_PASTELS = ["#FADBD8", "#D6EAF8", "#D5F5E3", "#FCF3CF", "#E8DAEF", "#FDEBD0", "#D1F2EB", "#F5EEF8", "#EBDEF0", "#EAF2F8"];
   function hashStr(s) { var h = 0; for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return Math.abs(h); }
@@ -35,13 +36,15 @@
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 8); }
   function save() { JF.store.save(state); render(); }
   function isSpecialTab() { return tab === "특수"; }
+  function isLoanTab() { return tab === "대출"; }
   function listForTab() {
     if (tab === "특수") return state.specials;
+    if (tab === "대출") return state.loanExpenses || [];
     return state.expenses.filter(function (e) { return e.type === tab; });
   }
 
   function currentPlanned(item) {
-    var ev = JF.calc.effectiveValueFor(item, state.meta.currentMonth);
+    var ev = JF.calc.effectiveValueFor(item, state.meta.currentMonth, loanSchedules);
     return ev.plannedAmount;
   }
 
@@ -64,7 +67,7 @@
   function renderTabs() {
     var host = document.getElementById("exp-tabs");
     host.innerHTML = "";
-    var bar = el("div", { class: "field-row" }, ["고정", "생활", "교육", "특수", "추가"].map(function (t) {
+    var bar = el("div", { class: "field-row" }, ["대출", "고정", "생활", "교육", "특수", "추가"].map(function (t) {
       return el("button", { class: "btn btn-sm " + (tab === t ? "btn-primary" : "btn-secondary"),
         onClick: function () { tab = t; openId = null; render(); } }, t);
     }));
@@ -106,6 +109,90 @@
     }
   }
 
+  // manualSegments 겹침 여부(두 구간의 [from,to]가 월 단위로 교차하면 true). 경고용(차단 아님).
+  function hasOverlap(segs) {
+    for (var i = 0; i < segs.length; i++) {
+      for (var j = i + 1; j < segs.length; j++) {
+        var a = segs[i], b = segs[j];
+        if (!a || !b || !a.fromMonth || !a.toMonth || !b.fromMonth || !b.toMonth) continue;
+        if (JF.format.ymCompare(a.fromMonth, b.toMonth) <= 0 && JF.format.ymCompare(b.fromMonth, a.toMonth) <= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  // 대출 항목 편집: 수동/자동 모드 토글 + 각 모드 UI를 body에 append.
+  // (이름/카드/실적·실제보정/삭제 섹션은 editForm이 이어서 기존 컴포넌트를 그대로 재사용)
+  function loanEditSection(body, item) {
+    body.appendChild(el("div", { class: "subhead" }, "입력 모드"));
+    function setMode(m) {
+      item.mode = m;
+      if (m === "manual" && !Array.isArray(item.manualSegments)) item.manualSegments = [];
+      save();
+    }
+    var modeSeg = el("div", { class: "seg-group" }, [
+      el("button", { type: "button", class: "btn btn-sm seg-btn" + (item.mode === "manual" ? " is-active" : ""),
+        onClick: function () { setMode("manual"); } }, "수동 입력"),
+      el("button", { type: "button", class: "btn btn-sm seg-btn" + (item.mode === "auto" ? " is-active" : ""),
+        onClick: function () { setMode("auto"); } }, "자동(대출계산기)")
+    ]);
+    body.appendChild(el("div", { class: "field-row" }, [el("label", null, "모드:"), modeSeg]));
+
+    if (item.mode === "auto") {
+      var loans = state.loans || [];
+      var caseSel = el("select", { onChange: function () { item.loanId = caseSel.value || null; save(); } },
+        [el("option", { value: "" }, "(케이스 선택)")].concat(loans.map(function (c) {
+          return el("option", { value: c.id, selected: item.loanId === c.id }, c.name || c.id);
+        })));
+      body.appendChild(el("div", { class: "field-row" }, [el("label", null, "대출 케이스:"), caseSel]));
+      var linked = loans.filter(function (c) { return c.id === item.loanId; })[0];
+      if (item.loanId && !linked) {
+        // 고아 참조: 참조한 케이스가 삭제됨 → 에러 없이 0원, 안내 표시.
+        body.appendChild(el("div", { class: "muted" }, "⚠ 연결된 케이스 없음 — 참조한 대출 케이스가 삭제되었습니다. 해당 월 금액은 0원으로 처리됩니다."));
+      } else if (linked) {
+        var sched = JF.ui.computeCaseSchedule(linked);
+        var cm = state.meta.currentMonth;
+        var payRow = (sched.rows || []).filter(function (r) { return r.date && r.date.slice(0, 7) === cm; })[0];
+        var payTxt = payRow ? (JF.format.formatWon(payRow.payment) + "원")
+          : ("이 달(" + cm + ")은 상환 스케줄 밖 — 0원");
+        body.appendChild(el("div", { class: "muted" }, "이 달 예상 상환액: " + payTxt + " (참고용, 저장 데이터 아님)"));
+      } else {
+        body.appendChild(el("div", { class: "muted" }, "대출계산기(loan.html)에 등록된 케이스를 선택하면 회차별 상환액이 자동 대입됩니다."));
+      }
+      return;
+    }
+
+    // 수동 모드 — manualSegments 표(시작월/종료월/금액 + 행 추가/삭제). 구간 밖은 0원.
+    body.appendChild(el("div", { class: "subhead" }, "수동 구간(월별 원리금)"));
+    var segs = item.manualSegments || (item.manualSegments = []);
+    if (hasOverlap(segs)) {
+      body.appendChild(el("div", { class: "muted" }, "⚠ 겹치는 구간이 있습니다(저장은 됨). 겹치는 달은 목록에서 먼저 나오는 구간의 금액이 적용됩니다."));
+    }
+    if (!segs.length) {
+      body.appendChild(el("div", { class: "muted" }, "구간이 없습니다. 아래 '구간 추가'로 적용 기간과 금액을 지정하세요(구간 밖은 0원)."));
+    }
+    segs.forEach(function (seg) {
+      var f = el("input", { type: "month", value: seg.fromMonth || "" });
+      var t = el("input", { type: "month", value: seg.toMonth || "" });
+      var a = el("input", { type: "number", min: "0", step: "1000", value: (seg.amount != null ? seg.amount : 0) });
+      body.appendChild(el("div", { class: "field-row" }, [
+        el("label", null, "시작:"), f, el("label", null, "종료:"), t, el("label", null, "금액(원):"), a,
+        el("button", { class: "btn btn-sm btn-secondary", onClick: function () {
+          seg.fromMonth = f.value || null; seg.toMonth = t.value || null; seg.amount = Number(a.value) || 0; save();
+        } }, "저장"),
+        el("button", { class: "btn btn-sm btn-danger push-right", onClick: function () {
+          item.manualSegments = segs.filter(function (x) { return x !== seg; }); save();
+        } }, "삭제")
+      ]));
+    });
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("button", { class: "btn btn-sm btn-primary", onClick: function () {
+        segs.push({ id: uid("seg"), fromMonth: state.meta.horizon.start, toMonth: state.meta.horizon.end, amount: 0 });
+        save();
+      } }, "+ 구간 추가")
+    ]));
+  }
+
   // ---- 편집 폼 -------------------------------------------------------
   function editForm(item) {
     var body = el("div", { class: "card-body stack" }, []);
@@ -142,7 +229,10 @@
       body.appendChild(el("div", { class: "field-row" }, [el("label", null, "특수 모드:"), modeSel]));
     }
 
-    // 금액 편집
+    // 금액/모드 편집 — 대출 항목은 수동/자동 모드 UI(별도), 그 외는 기존 금액 편집.
+    if (isLoanTab()) {
+      loanEditSection(body, item);
+    } else {
     body.appendChild(el("div", { class: "subhead" }, "금액"));
     if (tab === "추가") {
       var amtOneoff = el("input", { type: "number", value: currentPlanned(item), min: "0", step: "1000" });
@@ -209,9 +299,10 @@
         });
       }
     }
+    }
 
-    // 반복 규칙 (추가 항목은 오늘 날짜의 oneoff이므로 별도 규칙 편집이 필요 없음)
-    if (tab !== "추가") {
+    // 반복 규칙 (추가/대출 항목은 별도 규칙 편집이 필요 없음)
+    if (tab !== "추가" && !isLoanTab()) {
       var RECURRENCE_KINDS = [
         { value: "monthly", label: "매월" },
         { value: "interval", label: "매 N개월마다" },
@@ -280,7 +371,7 @@
         item.name = name.value; item.category = cat.value;
         save();
       } }, "태그/이름 저장"),
-      el("span", { class: "muted" }, "카드 대신 계좌이체면 결제 수단에서 '계좌이체' 선택(자동 실적 제외). 주유비는 혜택은 받되 '실적 포함' 해제(주유 실적 제외 카드).")
+      el("span", { class: "muted" }, "카드 대신 계좌이체면 결제 수단에서 '계좌이체' 선택(자동 실적 제외). 주유비는 혜택은 받되 '실적 포함' 해제(Deep Oil 주유 제외).")
     ]));
 
     // 이 달 실제 보정 (N4) — 원 단위 입력, 기간 시작월 기본
@@ -321,15 +412,18 @@
   }
 
   function removeItem(item) {
+    // 3-way: 특수→specials, 대출→loanExpenses, 그 외→expenses (탭별로 대상 배열이 다름)
     if (isSpecialTab()) { state.specials = state.specials.filter(function (x) { return x.id !== item.id; }); }
+    else if (isLoanTab()) { state.loanExpenses = (state.loanExpenses || []).filter(function (x) { return x.id !== item.id; }); }
     else { state.expenses = state.expenses.filter(function (x) { return x.id !== item.id; }); }
     openId = null; save();
   }
 
-  // 항목 순서 이동: dir -1(위) / +1(아래). 같은 탭(type) 내에서만 이동, 경계에서는 no-op.
+  // 항목 순서 이동: dir -1(위) / +1(아래). 같은 탭 내에서만 이동, 경계에서는 no-op.
+  // 3-way: 특수/대출은 배열 전체가 형제, 그 외(expenses)는 같은 type만 형제.
   function moveItem(item, dir) {
-    var arr = isSpecialTab() ? state.specials : state.expenses;
-    var siblings = arr.filter(function (x) { return isSpecialTab() ? true : x.type === item.type; });
+    var arr = isSpecialTab() ? state.specials : (isLoanTab() ? (state.loanExpenses || []) : state.expenses);
+    var siblings = arr.filter(function (x) { return (isSpecialTab() || isLoanTab()) ? true : x.type === item.type; });
     var pos = siblings.indexOf(item);
     var target = siblings[pos + dir];
     if (!target) return;
@@ -346,6 +440,11 @@
         effectiveValues: [{ fromMonth: state.meta.horizon.start, plannedAmount: 0, actualAmount: null }],
         actualsByMonth: {}, pastLock: true, assignedCardId: null, chargeDay: null, countsTowardPerformance: false
       });
+    } else if (isLoanTab()) {
+      var li = JF.schema.emptyLoanExpenseItem();
+      li.id = uid("ln"); li.name = "새 대출 항목";
+      state.loanExpenses = state.loanExpenses || [];
+      state.loanExpenses.push(li);
     } else if (tab === "추가") {
       var clamped = JF.format.ymCompare(state.meta.currentMonth, state.meta.horizon.start) < 0
         ? state.meta.horizon.start : state.meta.currentMonth;
@@ -392,7 +491,7 @@
 
   // 카드 1개 분량의 실적 행(머리글 + 멀티티어 바)을 panel에 append.
   function appendPerfRow(panel, card) {
-    var earned = JF.calc.performance(state, card, perfMonth);
+    var earned = JF.calc.performance(state, card, perfMonth, loanSchedules);
     var conds = card.performanceConditions || [];
     var tiers = [];
     conds.forEach(function (c) {
@@ -432,6 +531,8 @@
   }
 
   function render() {
+    // 자동 모드 대출 항목의 월별 금액/실적 계산에 쓰이므로 renderPerformance()보다 먼저 계산.
+    loanSchedules = JF.ui.buildLoanSchedules(state);
     renderPerformance();
     renderTabs();
     var host = document.getElementById("exp-list");
@@ -482,7 +583,7 @@
     JF.ui.renderNav("expenses.html");
     state = JF.store.load();
     var params = new URLSearchParams(location.search);
-    var t = params.get("tab"); if (t && ["고정", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
+    var t = params.get("tab"); if (t && ["대출", "고정", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
     var o = params.get("open"); if (o) openId = o;
     perfMonth = JF.format.ymCompare(state.meta.currentMonth, state.meta.horizon.start) < 0
       ? state.meta.horizon.start : state.meta.currentMonth;

@@ -20,9 +20,9 @@ window.JF = window.JF || {};
   var LABEL_KEY = "jinfinance:sync:label";
 
   // 동기화 섹션 = 상태 최상위 키(각각 파일 1개).
-  var SECTIONS = ["meta", "account", "income", "expenses", "specials", "cards", "categories", "categoryColors", "checklists", "loans"];
+  var SECTIONS = ["meta", "account", "income", "expenses", "specials", "cards", "categories", "categoryColors", "checklists", "loans", "loanExpenses"];
   // id 배열 섹션(항목 단위 union 병합).
-  var ARRAY_SECTIONS = ["expenses", "specials", "cards", "categories", "checklists", "loans"];
+  var ARRAY_SECTIONS = ["expenses", "specials", "cards", "categories", "checklists", "loans", "loanExpenses"];
   // 평면 맵 섹션(키 단위 union 병합).
   var FLATMAP_SECTIONS = ["account", "categoryColors"];
   // meta에서 동기화 제외(클라이언트 뷰 상태).

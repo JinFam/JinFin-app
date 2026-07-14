@@ -123,6 +123,28 @@ window.JF = window.JF || {};
     return (c && Number(c.annualRate)) || 0;
   }
 
+  // computeCaseSchedule(c): 대출계산기 케이스 → 회차별 상환 스케줄({rows, summary}).
+  // linkToFinalRate 해석(순수 엔진 밖에서 해야 하는 부분)을 여기서 처리해 JF.loan에 숫자 금리를 넘김.
+  // "대출" 지출 탭 자동 모드가 이 스케줄의 payment를 월별 원리금으로 사용.
+  function computeCaseSchedule(c) {
+    var rate = resolveCaseRate(c);
+    return JF.loan.computeSchedule({
+      amount: c.amount, termMonths: c.termMonths, annualRate: rate, graceMonths: c.graceMonths,
+      startDate: c.startDate, extraPayment: c.extraPayment || { amount: 0, fromInstallment: 0 },
+      prepayments: c.prepayments || [], rateChanges: c.rateChanges || []
+    });
+  }
+
+  // buildLoanSchedules(state): 자동 모드 loanExpenses가 참조하는 케이스만 스케줄 계산 →
+  // { [loanId]: rows[] } 맵. calc.js(순수 모듈)에 loanSchedules 인자로 주입할 plain 데이터.
+  function buildLoanSchedules(state) {
+    var wanted = {};
+    (state.loanExpenses || []).forEach(function (li) { if (li.mode === 'auto' && li.loanId) wanted[li.loanId] = true; });
+    var map = {};
+    (state.loans || []).forEach(function (c) { if (wanted[c.id]) map[c.id] = computeCaseSchedule(c).rows; });
+    return map;
+  }
+
   // renderRepPayment(): 대표 대출의 월 원리금을 브랜드 아래(최종금리 옆 줄)에 표기.
   // JF.loan(순수 엔진)·JF.store 가 로드된 페이지에서만 계산(모든 페이지에 loan.js 로드됨).
   function renderRepPayment() {
@@ -302,6 +324,8 @@ window.JF = window.JF || {};
     onFinalRate: onFinalRate,
     getRepresentativeLoan: getRepresentativeLoan,
     setRepresentativeLoan: setRepresentativeLoan,
-    refreshRepPayment: renderRepPayment
+    refreshRepPayment: renderRepPayment,
+    computeCaseSchedule: computeCaseSchedule,
+    buildLoanSchedules: buildLoanSchedules
   };
 })();
