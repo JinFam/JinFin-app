@@ -15,7 +15,8 @@ window.JF = window.JF || {};
     { href: "cards.html", label: "카드" },
     { href: "card-helper.html", label: "카드도우미" },
     { href: "checklist.html", label: "체크리스트" },
-    { href: "loan.html", label: "대출계산기" }
+    { href: "loan.html", label: "대출계산기" },
+    { href: "rates.html", label: "금리" }
   ];
 
   // el(tag, attrs, children) — small DOM builder helper.

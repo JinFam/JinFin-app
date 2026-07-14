@@ -1077,3 +1077,81 @@ table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-
   table.table td.loan-cmp-c2-bal, table.table th.loan-cmp-c2-bal { background: rgba(62, 203, 125, 0.14); }
   table.table td.loan-cmp-c2-pay, table.table th.loan-cmp-c2-pay { background: rgba(62, 203, 125, 0.30); }
 }
+
+/* ---------------------------------------------------------------------- */
+/* 금리 탭 — 그래프(SVG, 무의존성) + 범례 토글 + 월/주/일 세그먼트 + 표 페이지네이션 */
+/* ---------------------------------------------------------------------- */
+
+/* 월/주/일 전환 세그먼트 버튼 그룹 (card-header 우측). */
+.seg-group { display: flex; gap: 0.25rem; }
+.seg-btn.is-active {
+  background: var(--jf-primary);
+  color: #fff;
+}
+
+.rate-chart-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rate-chart-svg {
+  display: block;
+  width: 100%;
+  height: 320px;
+}
+
+.rate-axis-text {
+  font-family: var(--jf-font-mono);
+  font-size: 10px;
+  fill: var(--jf-text-muted);
+}
+
+.rate-grid-line {
+  stroke: var(--jf-border);
+  stroke-width: 1;
+}
+.rate-grid-line-v { stroke-dasharray: 2 3; }
+
+.rate-line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.rate-point { stroke: none; }
+
+/* 범례 — 클릭으로 보이기/숨기기(신한=파랑/제일=초록, 데이터 색과 동일 dot). */
+.rate-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+.rate-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--jf-border);
+  background: var(--jf-bg-elevated);
+  color: var(--jf-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rate-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+.rate-legend-chip.is-hidden {
+  color: var(--jf-text-muted);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.rate-legend-chip.is-hidden .rate-legend-dot { opacity: 0.4; }
+
+.rate-caption { margin-top: 0.8rem; margin-bottom: 0; font-size: 0.8rem; }
