@@ -106,6 +106,10 @@
     render();
   }
 
+  // scheduleRerender() — 휠/드래그/핀치 도중에는 카드 전체(범례·세그먼트 버튼 포함)를 다시
+  // 만들지 않고 svg "내용물"만 갱신한다(updateChartGeometry). 매 프레임 svg 엘리먼트 자체를
+  // 새로 만들면 그 위에 붙은 리스너를 매번 다시 붙여야 하고, 그 틈에 이벤트가 옛 노드로 가는
+  // 등 드래그 상태가 꼬이기 쉽다 — svg 노드를 인터랙션 내내 고정해 이 문제를 근본적으로 없앤다.
   function scheduleRerender() {
     if (rerenderScheduled) return;
     rerenderScheduled = true;
@@ -114,7 +118,7 @@
       : function (fn) { return setTimeout(fn, 16); };
     raf(function () {
       rerenderScheduled = false;
-      renderChartSection();
+      updateChartGeometry();
     });
   }
 
@@ -146,9 +150,10 @@
     scheduleRerender();
   }
 
-  // ---- 인터랙션 핸들러: svg 자체(휠/mousedown/touchstart)는 매 렌더마다 새로 붙임.
-  // window 레벨(mousemove/mouseup/touchmove/touchend)은 아래 부트스트랩에서 1회만 등록하고,
-  // currentSvgNode/panState/pinchState(모듈 전역)를 참조해 재렌더로 교체된 svg에도 계속 동작한다. ----
+  // ---- 인터랙션 핸들러: svg 자체(휠/mousedown/touchstart)는 구조적 재생성(buildChart) 때만
+  // 새로 붙는다(인터랙션 중엔 updateChartGeometry가 노드를 바꾸지 않으므로 재부착 불필요).
+  // window 레벨(mousemove/mouseup/touchmove/touchend/touchcancel)은 아래 부트스트랩에서 1회만
+  // 등록하고, currentSvgNode/panState/pinchState(모듈 전역)를 참조한다. ----
   function onWheel(e) {
     e.preventDefault();
     var anchorT = pixToTime(clientToUserX(e.clientX));
@@ -157,9 +162,20 @@
     scheduleRerender();
   }
 
-  function onMouseDown(e) {
-    panState = { startClientX: e.clientX, startMinT: viewMinT, startMaxT: viewMaxT };
+  function startPan(clientX) {
+    panState = { startClientX: clientX, startMinT: viewMinT, startMaxT: viewMaxT };
     if (currentSvgNode) currentSvgNode.className = svgBaseClass();
+  }
+  function endPan() {
+    if (currentSvgNode) currentSvgNode.className = "rate-chart-svg";
+    panState = null;
+  }
+  function endPinch() {
+    pinchState = null;
+  }
+
+  function onMouseDown(e) {
+    startPan(e.clientX);
   }
 
   function onTouchStart(e) {
@@ -170,21 +186,24 @@
         startMinT: viewMinT, startMaxT: viewMaxT,
         midT: pixToTime(clientToUserX(midClientX(e.touches)))
       };
-      panState = null;
+      endPan();
     } else if (e.touches.length === 1) {
-      panState = { startClientX: e.touches[0].clientX, startMinT: viewMinT, startMaxT: viewMaxT };
-      pinchState = null;
+      // 합성 마우스 이벤트(모바일+마우스 겸용 기기) 발생을 막아 팬 상태가 이중으로 잡히지 않게 함.
+      e.preventDefault();
+      startPan(e.touches[0].clientX);
+      endPinch();
     }
   }
 
+  // onWindowMouseMove — mouseup이 브라우저 밖(또는 다른 이유)에서 유실되면 panState가 영영
+  // 안 풀려 "클릭 안 해도 계속 드래그되는" 버그로 이어진다. e.buttons===0(현재 버튼 안 눌림)이면
+  // 그 즉시 팬을 강제 종료하는 안전장치 — 버튼을 놓친 시점의 다음 mousemove에서 바로 복구된다.
   function onWindowMouseMove(e) {
     if (!panState) return;
+    if (typeof e.buttons === "number" && e.buttons === 0) { endPan(); return; }
     applyPanFromClientX(e.clientX);
   }
-  function onWindowMouseUp() {
-    if (currentSvgNode) currentSvgNode.className = "rate-chart-svg";
-    panState = null;
-  }
+  function onWindowMouseUp() { endPan(); }
   function onWindowTouchMove(e) {
     if (e.touches.length === 2 && pinchState) {
       e.preventDefault();
@@ -203,13 +222,16 @@
     }
   }
   function onWindowTouchEnd(e) {
-    if (e.touches.length < 2) pinchState = null;
-    if (e.touches.length === 0) panState = null;
+    if (e.touches.length < 2) endPinch();
+    if (e.touches.length === 0) endPan();
   }
+  // touchcancel(전화 수신, 알림창 등으로 브라우저가 터치를 강제 취소하는 경우) — touches 배열
+  // 형태가 브라우저마다 달라 신뢰하기 어려우므로 무조건 팬/핀치 상태를 종료한다.
+  function onWindowTouchCancel() { endPan(); endPinch(); }
 
-  // svgBaseClass() — panState가 있으면(드래그 중) "is-panning" 포함. 드래그 도중 휠/터치 등으로
-  // 재렌더(scheduleRerender)될 때마다 svg가 통째로 새로 만들어지므로, mousedown 때의 즉시 클래스
-  // 변경(onMouseDown)만으로는 다음 재렌더에서 클래스가 사라져 커서가 깜빡인다 — 생성 시점에도 반영.
+  // svgBaseClass() — panState가 있으면(드래그 중) "is-panning" 포함. 구조적 재생성(범례/세그먼트
+  // 전환, 전체보기 등)은 드문 사용자 조작에서만 일어나므로 안전장치로 유지(평소엔 mousedown/up의
+  // 직접 클래스 변경만으로 충분 — svg 노드가 인터랙션 내내 고정되어 있기 때문).
   function svgBaseClass() {
     return "rate-chart-svg" + (panState ? " is-panning" : "");
   }
@@ -221,10 +243,10 @@
     svg.addEventListener("touchstart", onTouchStart, { passive: false });
   }
 
-  // buildChart: 보이는 은행들의 집계 시계열을, 현재 확대/이동 창(viewMinT~viewMaxT) 기준으로 그린 SVG 반환.
-  // 월/주/일은 "창 안에서" 집계 단위만 바꾸고, 확대/축소/이동은 마우스 휠·드래그·핀치로 별도 처리(줌 창은
-  // 이 함수 밖의 모듈 상태이므로 granularity 전환 시에도 유지된다).
-  function buildChart(banks, seriesByBank, gran, hiddenSet) {
+  // computeChartNodes: 보이는 은행들의 집계 시계열을, 현재 확대/이동 창(viewMinT~viewMaxT) 기준으로
+  // 그린 svg 자식 노드 배열을 반환(순수 계산, DOM 부착 없음). 월/주/일은 "창 안에서" 집계 단위만
+  // 바꾸고, 확대/축소/이동은 마우스 휠·드래그·핀치로 별도 처리(줌 창은 이 함수 밖의 모듈 상태).
+  function computeChartNodes(banks, seriesByBank, gran, hiddenSet) {
     var W = CHART_W, H = CHART_H, M = CHART_M, plotW = CHART_PLOT_W, plotH = CHART_PLOT_H;
     var minT = viewMinT, maxT = viewMaxT;
 
@@ -243,15 +265,9 @@
       visibleByBank[b.id].forEach(function (p) { allPoints.push(p); });
     });
 
-    var nodes = [];
-    var svg;
-
     if (!allPoints.length) {
-      nodes.push(svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "rate-axis-text" },
-        "표시할 데이터가 없습니다 (범례에서 은행을 선택하거나 전체보기를 눌러보세요)"));
-      svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: svgBaseClass(), preserveAspectRatio: "none" }, nodes);
-      attachInteraction(svg);
-      return svg;
+      return [svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "rate-axis-text" },
+        "표시할 데이터가 없습니다 (범례에서 은행을 선택하거나 전체보기를 눌러보세요)")];
     }
 
     var values = allPoints.map(function (p) { return p.value; });
@@ -263,6 +279,8 @@
 
     function xPix(t) { return M.left + (t - minT) / (maxT - minT) * plotW; }
     function yPix(v) { return M.top + (1 - (v - minV) / (maxV - minV)) * plotH; }
+
+    var nodes = [];
 
     var yTicks = 5;
     for (var i = 0; i <= yTicks; i++) {
@@ -305,9 +323,30 @@
       }
     });
 
-    svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: svgBaseClass(), preserveAspectRatio: "none" }, nodes);
+    return nodes;
+  }
+
+  // buildChart: 구조적 렌더(초기 마운트/범례 토글/세그먼트 전환/전체보기)에서만 호출 — 새 <svg>를
+  // 만들고 인터랙션 리스너를 (다시) 붙인다. 휠/드래그/핀치 도중에는 절대 호출하지 않는다
+  // (updateChartGeometry가 대신 같은 노드의 내용만 갱신 — attachInteraction 참고 주석).
+  function buildChart(banks, seriesByBank, gran, hiddenSet) {
+    var nodes = computeChartNodes(banks, seriesByBank, gran, hiddenSet);
+    var svg = svgEl("svg", {
+      viewBox: "0 0 " + CHART_W + " " + CHART_H,
+      class: svgBaseClass(),
+      preserveAspectRatio: "none"
+    }, nodes);
     attachInteraction(svg);
     return svg;
+  }
+
+  // updateChartGeometry: 인터랙션(휠/드래그/핀치) 중 재렌더 경로. 기존 svg 엘리먼트를 그대로 두고
+  // 내용(축/선/마커)만 다시 채운다 — 리스너 재부착도, 카드/범례/버튼 재생성도 없다.
+  function updateChartGeometry() {
+    if (!currentSvgNode) return;
+    var nodes = computeChartNodes(JF.ratesData.banks, JF.ratesData.series, granularity, hidden);
+    currentSvgNode.textContent = "";
+    nodes.forEach(function (n) { currentSvgNode.appendChild(n); });
   }
 
   function renderGranSeg() {
@@ -426,6 +465,7 @@
   window.addEventListener("mouseup", onWindowMouseUp);
   window.addEventListener("touchmove", onWindowTouchMove, { passive: false });
   window.addEventListener("touchend", onWindowTouchEnd);
+  window.addEventListener("touchcancel", onWindowTouchCancel);
 
   JF.ui.renderNav("rates.html");
   render();
