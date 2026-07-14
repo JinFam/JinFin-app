@@ -224,7 +224,8 @@ window.JF = window.JF || {};
     return fetch(url, {
       method: "PUT",
       headers: ghHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      keepalive: true // 페이지 이동/언로드 중에도 요청이 살아남아 실제로 커밋되게(§flushPendingOnUnload)
     }).then(function (res) {
       return res.json().then(function (body) { return { status: res.status, body: body }; });
     });
@@ -404,6 +405,20 @@ window.JF = window.JF || {};
     _started = true;
     _state = initialState;
     status("connecting");
+    // pagehide: 뒤로가기/bfcache 포함 대부분의 이탈에서 발생. beforeunload: 일부 브라우저 보강용.
+    // 둘 다 side-effect만 수행(returnValue/preventDefault 없음) → 이탈 확인창 없음.
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("pagehide", flushPendingOnUnload);
+      window.addEventListener("beforeunload", flushPendingOnUnload);
+    }
+    // 탭이 백그라운드로 전환될 때도 동일하게 flush. 언로드되지 않고 그냥 숨겨진 탭은 브라우저가
+    // setTimeout을 강하게 스로틀링(수십 초~수 분 지연)할 수 있어, 대기 중이던 push가 한참 뒤
+    // 오래된 sha로 뒤늦게 발사되면 그 사이 다른 기기의 정상 push와 충돌(409)할 수 있음.
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") flushPendingOnUnload();
+      });
+    }
     return reconcile(initialState);
   }
 
@@ -505,6 +520,19 @@ window.JF = window.JF || {};
   function enqueuePush(s) {
     _putQueue = _putQueue.then(spacer).then(function () { return doPush(s); }).catch(function () {});
     return _putQueue;
+  }
+  // 언로드 직전 대기 중인 push를 즉시 발사(스페이서 대기 없이). 디바운스 타이머만 있고
+  // 아직 큐에 안 들어간 경우, 페이지 이동이 타이머를 파괴해 변경분이 원격에 반영되기 전에
+  // 다음 페이지의 reconcile()이 (아직 옛 값인) 원격을 그대로 채택 → 방금 저장한 값이 되돌아가는
+  // 문제(사용자 보고: 저장 후 다른 탭 이동 시 값 복원)의 직접적 원인. keepalive PUT과 함께 적용.
+  function flushPendingOnUnload() {
+    Object.keys(_pushTimers).forEach(function (s) {
+      if (_pushTimers[s]) {
+        clearTimeout(_pushTimers[s]);
+        _pushTimers[s] = null;
+        doPush(s);
+      }
+    });
   }
   function doPush(s) {
     var value = extractSection(_state, s);
