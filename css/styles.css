@@ -1099,7 +1099,11 @@ table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-
   display: block;
   width: 100%;
   height: 320px;
+  cursor: grab;
+  touch-action: none;   /* 브라우저 기본 스크롤/핀치와 충돌 방지(JS가 휠/핀치를 직접 처리) */
+  user-select: none;
 }
+.rate-chart-svg.is-panning { cursor: grabbing; }
 
 .rate-axis-text {
   font-family: var(--jf-font-mono);
