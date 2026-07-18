@@ -1010,22 +1010,22 @@ input[type="radio"] {
   position: fixed; right: 12px; bottom: 12px; z-index: 60;
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px; border-radius: 999px;
-  background: var(--jf-surface, #fff); border: 1px solid var(--jf-border, #e2e2e2);
+  background: var(--jf-bg-elevated); border: 1px solid var(--jf-border);
   box-shadow: 0 2px 10px rgba(0,0,0,0.12); font-size: 0.78rem;
 }
 .jf-sync-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 .jf-sync-dot.ok { background: #2ec16b; }
 .jf-sync-dot.off { background: #b7b7b7; }
-.jf-sync-txt { color: var(--jf-text, #333); white-space: nowrap; }
+.jf-sync-txt { color: var(--jf-text); white-space: nowrap; }
 .jf-sync-input {
   width: 88px; padding: 3px 6px; font-size: 0.75rem;
-  border: 1px solid var(--jf-border, #d9d9d9); border-radius: 6px;
+  border: 1px solid var(--jf-border); border-radius: 6px;
 }
 .jf-sync-input.jf-sync-name { width: 64px; }
 .jf-sync-btn {
   padding: 3px 10px; font-size: 0.75rem; cursor: pointer;
-  border: 1px solid var(--jf-border, #d9d9d9); border-radius: 6px;
-  background: var(--jf-accent-soft, #eef2ff); color: var(--jf-text, #333);
+  border: 1px solid var(--jf-border); border-radius: 6px;
+  background: var(--jf-primary-soft); color: var(--jf-text);
 }
 .jf-sync-btn:hover { filter: brightness(0.96); }
 

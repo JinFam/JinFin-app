@@ -42,14 +42,19 @@ window.JF = window.JF || {};
         } else if (kind === "error") {
           JF.ui.showBanner("동기화 오류: " + (detail || "알 수 없는 오류") +
             ". (저장소 초기화 여부, 브랜치 이름, 네트워크/CORS를 확인하세요)", "error");
-        } else if (kind === "synced" || kind === "adopted" || kind === "seeded" || kind === "merged" || kind === "pushed") {
+        } else if (kind === "synced" || kind === "adopted" || kind === "seeded" || kind === "merged") {
           if (JF.ui.hideBanner) JF.ui.hideBanner(); // 회복 시 이전 오류 배너 제거
         }
       },
       onConflict: function (section, ids) {
-        JF.ui.showBanner(
-          "동기화 충돌: '" + section + "' 항목(" + ids.join(", ") +
-          ")은 상대의 변경이 우선 적용되었습니다. 내 변경을 확인 후 다시 입력하세요.", "warn");
+        // income/meta처럼 섹션 전체가 하나의 충돌 단위("__section__")인 경우는 타임스탬프
+        // 우선(last-write-wins)이라 어느 쪽이 이겼는지 고정돼 있지 않음 — "상대가 이겼다"고
+        // 단정하지 않는다. 배열/맵 섹션의 항목 단위 충돌은 여전히 상대 값이 우선.
+        var wholeSection = ids.length === 1 && ids[0] === "__section__";
+        var msg = wholeSection
+          ? "동기화 충돌: '" + section + "' 항목을 비슷한 시점에 함께 수정했습니다. 더 나중에 수정한 쪽이 반영되었습니다. 내용을 확인하세요."
+          : "동기화 충돌: '" + section + "' 항목(" + ids.join(", ") + ")은 상대의 변경이 우선 적용되었습니다. 내 변경을 확인 후 다시 입력하세요.";
+        JF.ui.showBanner(msg, "warn");
       },
       onFirstEnable: function (local, remote, resolve) {
         var adopt = window.confirm(
@@ -97,8 +102,8 @@ window.JF = window.JF || {};
 
   function statusLabel(k) {
     return ({
-      connecting: "연결 중…", synced: "동기화됨", seeded: "초기화됨",
-      adopted: "원격 적용됨", pushed: "보냄", merged: "병합됨", disabled: "꺼짐",
+      connecting: "연결 중…", syncing: "동기화중", synced: "동기화완료", seeded: "초기화됨",
+      adopted: "원격 적용됨", merged: "병합됨", disabled: "꺼짐",
       error: "오류", autherror: "토큰/권한 오류"
     })[k] || "대기";
   }

@@ -18,6 +18,7 @@ window.JF = window.JF || {};
 
   var TOKEN_KEY = "jinfinance:sync:token";
   var LABEL_KEY = "jinfinance:sync:label";
+  var DIRTY_KEY = "jinfinance:sync:dirty"; // 페이지 경계를 넘는 "아직 반영 확인 못 받은 섹션" 원장
 
   // 동기화 섹션 = 상태 최상위 키(각각 파일 1개).
   var SECTIONS = ["meta", "account", "income", "expenses", "specials", "cards", "categories", "categoryColors", "checklists", "loans", "loanExpenses"];
@@ -145,11 +146,25 @@ window.JF = window.JF || {};
     }
     return { merged: merged, conflicts: conflicts };
   }
-  // 섹션 디스패치. income/meta 등 중첩객체 → 섹션 단위(theirs 우선, 다르면 "__section__" 보고).
-  function mergeSectionValue(name, mine, theirs) {
+  // 타임스탬프(ms epoch 숫자 또는 ISO 문자열) → ms epoch 숫자. 파싱 불가/없음 → null.
+  function toMs(t) {
+    if (typeof t === "number") return isFinite(t) ? t : null;
+    if (typeof t === "string") { var p = Date.parse(t); return isFinite(p) ? p : null; }
+    return null;
+  }
+  // 섹션 디스패치. income/meta 등 중첩객체(섹션 전체가 하나의 단위) → 다르면 타임스탬프
+  // 우선(last-write-wins): 둘 다 시각을 알 때만 비교해 더 나중에 편집된 쪽을 채택하고,
+  // "__section__"으로 충돌을 보고한다(자동 병합이 아니라 승자만 정한 것이므로, 진 쪽의
+  // 편집을 사용자가 확인할 수 있도록 알림은 유지). 시각을 하나라도 모르면 안전하게
+  // theirs(원격)를 채택한다(기존 동작과 동일 — 데이터 유실보다 예측 가능성 우선).
+  function mergeSectionValue(name, mine, theirs, mineAt, theirsAt) {
     if (ARRAY_SECTIONS.indexOf(name) !== -1) return mergeArrayById(mine, theirs);
     if (FLATMAP_SECTIONS.indexOf(name) !== -1) return mergeFlatMap(mine, theirs);
-    if (!deepEqual(mine, theirs)) return { merged: theirs, conflicts: ["__section__"] };
+    if (!deepEqual(mine, theirs)) {
+      var mineMs = toMs(mineAt), theirsMs = toMs(theirsAt);
+      var mineWins = mineMs != null && theirsMs != null && mineMs > theirsMs;
+      return { merged: mineWins ? mine : theirs, conflicts: ["__section__"] };
+    }
     return { merged: theirs, conflicts: [] };
   }
 
@@ -274,6 +289,7 @@ window.JF = window.JF || {};
   var _lastWrittenSha = {};  // section -> 내가 방금 PUT한 sha(에코 억제)
   var _state = null;         // 현재 전체 상태(원격 적용 기준)
   var _pushTimers = {};      // section -> debounce timer
+  var _dirty = {};           // section -> true(아직 반영 확인 못 받은 로컬 편집). 상태 라벨 + poll() 가드에 사용.
   var _putQueue = Promise.resolve(); // 직렬 PUT 체인
   var _started = false;
   var _reconciled = false;   // 최초 정합 성공 여부(폴링은 이후에만)
@@ -294,6 +310,44 @@ window.JF = window.JF || {};
   function isAdopted() { try { return !!window.localStorage.getItem(adoptedKey()); } catch (e) { return false; } }
   function status(kind, detail) { _lastKind = kind; if (typeof _hooks.onStatus === "function") { try { _hooks.onStatus(kind, detail); } catch (e) {} } }
   function spacer() { return new Promise(function (resolve) { setTimeout(resolve, PUT_SPACING_MS); }); }
+
+  // ---- durable dirty 원장(페이지 경계를 넘는 "아직 반영 확인 못 받은 섹션" 추적) ----
+  // { section: { priorMirror, updatedAt } } — priorMirror는 그 섹션을 dirty로 표시한 "그 순간"의
+  // _mirror[s](= 마지막으로 확인된 동기화 값)의 스냅샷. reconcile()이 재부팅 시 원격이
+  // "그 사이 실제로 바뀌었는지(파트너 커밋)" 아니면 "그냥 내 push가 아직 안 갔을 뿐인지"를
+  // 구분하는 기준으로 쓴다(전자는 병합/충돌 보고, 후자만 로컬을 그대로 유지). updatedAt(ms
+  // epoch)은 "내가 이 편집을 시작한 시각"으로, income/meta 같은 중첩객체 섹션의 진짜 충돌에서
+  // 타임스탬프 우선(last-write-wins) 판정의 "내 쪽" 시각으로 쓰인다.
+  // 여러 탭이 같은 키를 공유하므로 항목 단위 추가/제거로만 다뤄, 다른 탭이 표시한
+  // 섹션을 내 스냅샷으로 통째로 덮어써 지우지 않게 한다.
+  function readDirtyLedger() {
+    try {
+      var raw = window.localStorage.getItem(DIRTY_KEY);
+      var obj = raw ? JSON.parse(raw) : {};
+      return (obj && typeof obj === "object" && !Array.isArray(obj)) ? obj : {};
+    } catch (e) { return {}; }
+  }
+  function writeDirtyLedger(obj) { try { window.localStorage.setItem(DIRTY_KEY, JSON.stringify(obj)); } catch (e) {} }
+  function markDirty(s) {
+    if (_dirty[s]) return; // 이미 dirty(같은 페이지 세션에서 재편집) → 원래 스냅샷/시각 유지
+    _dirty[s] = true;
+    var ledger = readDirtyLedger();
+    if (!(s in ledger)) {
+      ledger[s] = { priorMirror: (_mirror[s] === undefined ? null : _mirror[s]), updatedAt: Date.now() };
+      writeDirtyLedger(ledger);
+    }
+  }
+  function clearDirty(s) {
+    // 주의: _dirty[s]가 이 페이지에서 false여도(예: reconcile()이 durable 원장만 보고 아직
+    // 인메모리로 표시하지 않은 carried-over 섹션) 원장 정리는 항상 시도해야 한다.
+    delete _dirty[s];
+    var ledger = readDirtyLedger();
+    if (s in ledger) { delete ledger[s]; writeDirtyLedger(ledger); }
+  }
+  function dirtyCount() { return Object.keys(_dirty).length; }
+  // 성공적인 동기화 이벤트(push/poll/reconcile) 뒤 상태 라벨을 파생: 아직 dirty가
+  // 남아있으면(다른 섹션이 여전히 대기 중) "동기화중" 유지, 없으면 "동기화완료".
+  function statusAfterSync() { status(dirtyCount() ? "syncing" : "synced"); }
 
   function subscribe(cb) {
     if (typeof cb === "function") _subs.push(cb);
@@ -342,12 +396,15 @@ window.JF = window.JF || {};
       var wanted = dir.files.filter(function (f) { return SECTIONS.indexOf(f.section) !== -1; });
       return Promise.all(wanted.map(function (f) {
         return ghGetFile(f.section).then(function (r) {
-          return { section: f.section, sha: r.sha, value: r.text ? unwrapEnvelope(r.text).data : null };
+          var env = r.text ? unwrapEnvelope(r.text) : null;
+          return { section: f.section, sha: r.sha, value: env ? env.data : null, updatedAt: env ? env.updatedAt : null };
         });
       })).then(function (arr) {
-        var values = {}, sha = {};
-        for (var i = 0; i < arr.length; i++) { values[arr[i].section] = arr[i].value; sha[arr[i].section] = arr[i].sha; }
-        return { empty: false, dirEtag: dir.etag || null, values: values, sha: sha };
+        var values = {}, sha = {}, updatedAt = {};
+        for (var i = 0; i < arr.length; i++) {
+          values[arr[i].section] = arr[i].value; sha[arr[i].section] = arr[i].sha; updatedAt[arr[i].section] = arr[i].updatedAt;
+        }
+        return { empty: false, dirEtag: dir.etag || null, values: values, sha: sha, updatedAt: updatedAt };
       });
     });
   }
@@ -453,7 +510,38 @@ window.JF = window.JF || {};
         });
       }
       var merged = adoptRemote(initialState, remote.values, remote.sha);
-      markAdopted(); persistLocal(merged); emit(merged); status("synced"); afterReconcile();
+      // carried-over dirty: 이전 페이지/세션이 미처 못 보낸 편집이 있었을 수 있음(durable 원장).
+      // adoptRemote가 이미 그 섹션을 원격 값으로 덮었으므로 검토가 필요하다. 원장의 스냅샷
+      // (편집이 시작된 시점에 알던 마지막 동기화 값)과 방금 받은 원격 값을 비교해:
+      //  - 원격이 스냅샷과 그대로다 → 파트너 변경 없음, 그냥 내 push가 아직 안 간 것 → 로컬 유지.
+      //  - 원격이 스냅샷과 다르다 → 그 사이 파트너가 실제로 커밋함 → 로컬로 무조건 덮으면 그
+      //    커밋을 조용히 파괴함(무불변식 위반). push가 갔다면 409를 받았을 상황과 동일하게
+      //    기존 충돌 병합 정책(mergeSectionValue + onConflict)을 그대로 적용한다.
+      var carriedLedger = readDirtyLedger();
+      var retrySections = [];
+      Object.keys(carriedLedger).forEach(function (s) {
+        if (SECTIONS.indexOf(s) === -1) return;
+        var localVal = extractSection(initialState, s);
+        var remoteVal = remote.values.hasOwnProperty(s) ? remote.values[s] : undefined;
+        if (deepEqual(localVal, remoteVal)) { clearDirty(s); return; } // 이전 push가 이미 성공함
+        var entry = carriedLedger[s] || {};
+        var priorMirror = entry.priorMirror;
+        if (remoteVal === undefined || deepEqual(remoteVal, priorMirror)) {
+          applySection(merged, s, localVal); // 파트너 변경 없음(또는 원격에 파일 자체가 없음) → 로컬 편집 유지
+        } else {
+          var theirsAt = remote.updatedAt && remote.updatedAt.hasOwnProperty(s) ? remote.updatedAt[s] : null;
+          var m = mergeSectionValue(s, localVal, remoteVal, entry.updatedAt, theirsAt); // 파트너가 그 사이 커밋함 → 병합(income/meta는 타임스탬프 우선)
+          if (m.conflicts && m.conflicts.length && typeof _hooks.onConflict === "function") {
+            try { _hooks.onConflict(s, m.conflicts); } catch (e) {}
+          }
+          applySection(merged, s, m.merged);
+        }
+        markDirty(s);
+        retrySections.push(s);
+      });
+      markAdopted(); persistLocal(merged); emit(merged); statusAfterSync(); afterReconcile();
+      // 재부팅 직후이므로 디바운스(타이핑 배칭용) 없이 곧바로 재전송해 노출 창을 최소화.
+      retrySections.forEach(function (s) { enqueuePush(s); });
     }).catch(function (e) {
       var code = e && e.code;
       var authish = (code === 401 || code === 403) || (e && e.noAccess); // 토큰/권한/접근 불가
@@ -475,14 +563,18 @@ window.JF = window.JF || {};
     return ghGetDir(_dirEtag).then(function (dir) {
       // 토큰 만료/미승인이 폴링 중 발생 → 조용히 넘기면 "동기화됨" 표시인 채 실제로는 갈라짐. 반드시 알림.
       if (dir.status === 401 || dir.status === 403) { status("autherror", "poll HTTP " + dir.status); schedulePoll(); return; }
-      if (dir.status === 304) { if (_lastKind === "autherror") status("synced"); schedulePoll(); return; } // 조건부요청 성공 = 토큰 회복
+      if (dir.status === 304) { if (_lastKind === "autherror") statusAfterSync(); schedulePoll(); return; } // 조건부요청 성공 = 토큰 회복
       if (dir.status !== 200) { schedulePoll(); return; } // 404/5xx → 변화 없음/일시 오류: 다음 폴까지 대기
-      if (_lastKind === "autherror") status("synced"); // 200 = 토큰 회복(이전 오류 배너 해제 트리거)
+      if (_lastKind === "autherror") statusAfterSync(); // 200 = 토큰 회복(이전 오류 배너 해제 트리거)
       _dirEtag = dir.etag;
       var changed = [];
       for (var i = 0; i < dir.files.length; i++) {
         var f = dir.files[i];
         if (SECTIONS.indexOf(f.section) === -1) continue;
+        // 아직 반영 확인 못 받은 로컬 편집이 있는 섹션 → 지금 섣불리 원격으로 덮지 않는다.
+        // sha도 갱신하지 않아, 곧 나갈 로컬 push가 최신 sha로 시도되게 하고(필요하면 자연스럽게
+        // 409→resolveConflict 병합 경로로 이어짐). 다음 폴에서 dirty가 풀리면 다시 검사된다.
+        if (_dirty[f.section]) continue;
         if (_sha[f.section] === f.sha) continue;                 // 변화 없음
         if (_lastWrittenSha[f.section] === f.sha) { _sha[f.section] = f.sha; continue; } // 내 에코 → 무-렌더
         changed.push(f);
@@ -494,11 +586,19 @@ window.JF = window.JF || {};
         });
       })).then(function (arr) {
         var merged = deepClone(_state || {});
+        var appliedAny = false;
         for (var j = 0; j < arr.length; j++) {
-          applySection(merged, arr[j].section, arr[j].value);
-          setMirror(arr[j].section, arr[j].value); _sha[arr[j].section] = arr[j].sha;
+          var section = arr[j].section, value = arr[j].value;
+          _sha[section] = arr[j].sha; // sha 북키핑은 항상(재조회 루프 방지)
+          // envelope의 updatedAt/updatedBy는 매 커밋 갱신되어 sha만 다르고 실제 데이터는
+          // 같을 수 있음 — 값이 같으면 반영(재렌더)하지 않는다("값이 같으면 수정하지 않고").
+          if (deepEqual(value, _mirror[section])) continue;
+          applySection(merged, section, value);
+          setMirror(section, value);
+          appliedAny = true;
         }
-        persistLocal(merged); emit(merged); status("synced");
+        if (appliedAny) { persistLocal(merged); emit(merged); }
+        statusAfterSync();
         schedulePoll();
       });
     }).catch(function (e) { status("error", String((e && e.message) || e)); schedulePoll(); });
@@ -510,8 +610,11 @@ window.JF = window.JF || {};
     if (_applyingRemote || !enabled() || !_started || !_reconciled) return;
     SECTIONS.forEach(function (s) {
       var v = extractSection(state, s);
-      if (!deepEqual(v, _mirror[s])) debouncePush(s);
+      if (!deepEqual(v, _mirror[s])) { markDirty(s); debouncePush(s); }
     });
+    // 활성 오류(autherror/error)는 실제 성공 이벤트가 있을 때만 해제되어야 함 —
+    // 여기서 "syncing"으로 덮어써 사용자가 미해결 오류를 못 알아채게 하지 않는다.
+    if (dirtyCount() && _lastKind !== "autherror" && _lastKind !== "error") status("syncing");
   }
   function debouncePush(s) {
     if (_pushTimers[s]) clearTimeout(_pushTimers[s]);
@@ -536,11 +639,15 @@ window.JF = window.JF || {};
   }
   function doPush(s) {
     var value = extractSection(_state, s);
-    if (deepEqual(value, _mirror[s])) return Promise.resolve();
+    // 값이 이미 mirror와 같다 = 보낼 게 없다(예: 디바운스 대기 중 원래 값으로 되돌림) →
+    // dirty로 남겨두면 poll()이 이 섹션을 영원히 건너뛰고, 이후 carried-over 재정합에서
+    // 스스로 정상인 원격 값을 낡은 것으로 오판할 수 있으므로 반드시 여기서 정리한다.
+    if (deepEqual(value, _mirror[s])) { clearDirty(s); statusAfterSync(); return Promise.resolve(); }
     var text = JSON.stringify(wrapEnvelope(s, value, getLabel()));
     return ghPutFile(s, text, _sha[s]).then(function (resp) {
       if (resp.status >= 200 && resp.status < 300 && resp.body && resp.body.content) {
-        setMirror(s, value); _sha[s] = resp.body.content.sha; _lastWrittenSha[s] = _sha[s]; status("pushed", s);
+        setMirror(s, value); _sha[s] = resp.body.content.sha; _lastWrittenSha[s] = _sha[s];
+        clearDirty(s); statusAfterSync();
         return;
       }
       if (resp.status === 409) return resolveConflict(s, value);
@@ -549,8 +656,10 @@ window.JF = window.JF || {};
   }
   function resolveConflict(s, mineValue) {
     return ghGetFile(s).then(function (r) {
-      var theirs = r.text ? unwrapEnvelope(r.text).data : null;
-      var m = mergeSectionValue(s, mineValue, theirs);
+      var env = r.text ? unwrapEnvelope(r.text) : null;
+      var theirs = env ? env.data : null;
+      var mineAt = (readDirtyLedger()[s] || {}).updatedAt; // 내가 이 편집을 시작한 시각(원장)
+      var m = mergeSectionValue(s, mineValue, theirs, mineAt, env ? env.updatedAt : null); // income/meta는 타임스탬프 우선
       if (m.conflicts && m.conflicts.length && typeof _hooks.onConflict === "function") {
         try { _hooks.onConflict(s, m.conflicts); } catch (e) {}
       }
@@ -558,6 +667,7 @@ window.JF = window.JF || {};
       return ghPutFile(s, text, r.sha).then(function (resp2) {
         if (resp2.body && resp2.body.content) {
           setMirror(s, m.merged); _sha[s] = resp2.body.content.sha; _lastWrittenSha[s] = _sha[s];
+          clearDirty(s);
           var merged = deepClone(_state || {});
           applySection(merged, s, m.merged);
           persistLocal(merged); emit(merged); status("merged", s);
@@ -590,6 +700,7 @@ window.JF = window.JF || {};
     _mergeArrayById: mergeArrayById,
     _mergeFlatMap: mergeFlatMap,
     _mergeSectionValue: mergeSectionValue,
+    _toMs: toMs,
 
     // 런타임(라이브)
     start: start,
