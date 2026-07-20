@@ -10,6 +10,7 @@ window.JF = window.JF || {};
 
   var NAV_LINKS = [
     { href: "index.html", label: "대시보드" },
+    { href: "realestate.html", label: "부동산 예산" },
     { href: "income.html", label: "수입" },
     { href: "expenses.html", label: "지출" },
     { href: "cards.html", label: "카드" },

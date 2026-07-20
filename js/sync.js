@@ -21,9 +21,9 @@ window.JF = window.JF || {};
   var DIRTY_KEY = "jinfinance:sync:dirty"; // 페이지 경계를 넘는 "아직 반영 확인 못 받은 섹션" 원장
 
   // 동기화 섹션 = 상태 최상위 키(각각 파일 1개).
-  var SECTIONS = ["meta", "account", "income", "expenses", "specials", "cards", "categories", "categoryColors", "checklists", "loans", "loanExpenses"];
+  var SECTIONS = ["meta", "account", "income", "expenses", "specials", "cards", "categories", "categoryColors", "checklists", "loans", "loanExpenses", "realEstateBudget"];
   // id 배열 섹션(항목 단위 union 병합).
-  var ARRAY_SECTIONS = ["expenses", "specials", "cards", "categories", "checklists", "loans", "loanExpenses"];
+  var ARRAY_SECTIONS = ["expenses", "specials", "cards", "categories", "checklists", "loans", "loanExpenses", "realEstateBudget"];
   // 평면 맵 섹션(키 단위 union 병합).
   var FLATMAP_SECTIONS = ["account", "categoryColors"];
   // meta에서 동기화 제외(클라이언트 뷰 상태).

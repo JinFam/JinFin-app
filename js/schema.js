@@ -144,6 +144,35 @@ window.JF = window.JF || {};
     };
   }
 
+  // ---- 부동산 예산 ------------------------------------------------------
+  // state.realEstateBudget[] = 스냅샷 배열(시간순, index 0=가장 오래됨). 스냅샷마다
+  // 독립된 열(columns) 구성 + 매도비용/매수비용 소항목(item)을 가진다.
+  function emptyRealEstateColumn() {
+    return { id: '', title: '' };
+  }
+  // cellStyles: { date: {bg, fontPreset}, [columnId]: {bg, fontPreset} } — 날짜/비용 칸 전용
+  // (항목명 칸은 이름수정/고정 아이콘 전용, 스타일 없음). locked=true면 비용 값 셀만 잠김.
+  function emptyRealEstateItem() {
+    return {
+      id: '',
+      name: '',
+      date: null,       // "YYYY-MM-DD" 시행일자
+      locked: false,
+      values: {},         // { [columnId]: number(원) } — 키 없으면 0, 마이너스 허용
+      cellStyles: {}
+    };
+  }
+  function emptyRealEstateSnapshot() {
+    return {
+      id: '',
+      date: null,        // "YYYY-MM-DD" — 상단 "{날짜} {타이틀}"의 날짜
+      title: '',
+      columns: [],         // [emptyRealEstateColumn]
+      sellItems: [],        // [emptyRealEstateItem] 매도비용
+      buyItems: []           // [emptyRealEstateItem] 매수비용
+    };
+  }
+
   // schemaVersion 확인/업그레이드 + 상시 정규화(로드된 구버전 상태 보정).
   function migrate(state) {
     if (!state) return state;
@@ -193,6 +222,20 @@ window.JF = window.JF || {};
       loanCase.graceMonths = Math.max(0, Math.min(maxGrace, grace));
     });
 
+    // 부동산 예산 스냅샷 배열 보장 + 하위필드 정규화(동기화/구버전으로 유입된 부분 데이터 방어).
+    if (!Array.isArray(state.realEstateBudget)) state.realEstateBudget = [];
+    state.realEstateBudget.forEach(function (snap) {
+      if (!snap) return;
+      if (!Array.isArray(snap.columns)) snap.columns = [];
+      if (!Array.isArray(snap.sellItems)) snap.sellItems = [];
+      if (!Array.isArray(snap.buyItems)) snap.buyItems = [];
+      snap.sellItems.concat(snap.buyItems).forEach(function (it) {
+        if (!it) return;
+        if (!it.values || typeof it.values !== 'object') it.values = {};
+        if (!it.cellStyles || typeof it.cellStyles !== 'object') it.cellStyles = {};
+      });
+    });
+
     return state;
   }
 
@@ -211,6 +254,9 @@ window.JF = window.JF || {};
     emptyMemo: emptyMemo,
     emptyLoanExpenseItem: emptyLoanExpenseItem,
     emptyLoanCase: emptyLoanCase,
+    emptyRealEstateColumn: emptyRealEstateColumn,
+    emptyRealEstateItem: emptyRealEstateItem,
+    emptyRealEstateSnapshot: emptyRealEstateSnapshot,
     migrate: migrate
   };
 

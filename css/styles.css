@@ -42,6 +42,12 @@
  * Buttons:
  *   .btn, .btn-primary, .btn-secondary, .btn-danger, .btn-ghost, .btn-sm
  *
+ * 부동산 예산 (realestate.html):
+ *   .re-snapshot-track     horizontal-scroll row of .re-snapshot-card
+ *   .re-hover-label / .re-hover-actions   hover-reveal edit/lock/delete icons
+ *   .re-cell-editable / .re-cell-locked   date/value cell click targets
+ *   .re-popover            fixed-position value+color+font edit popover
+ *
  * Utility:
  *   .muted, .text-right, .text-center, .stack (vertical flex gap)
  *   .push-right            margin-left:auto — pushes a single trailing
@@ -1159,3 +1165,70 @@ table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-
 .rate-legend-chip.is-hidden .rate-legend-dot { opacity: 0.4; }
 
 .rate-caption { margin-top: 0.8rem; margin-bottom: 0; font-size: 0.8rem; }
+
+/* ---------------------------------------------------------------------- */
+/* 부동산 예산 — 스냅샷 가로 트랙 + hover 편집 아이콘 + 셀 편집 팝오버      */
+/* ---------------------------------------------------------------------- */
+.re-snapshot-track {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 1.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+.re-snapshot-card {
+  flex: 0 0 auto;
+  min-width: 420px;
+}
+.re-snapshot-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 140px;
+  border: 1px dashed var(--jf-border);
+  background: transparent;
+  box-shadow: none;
+}
+.re-snapshot-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  font-weight: 700;
+}
+
+/* hover 시 편집/고정/삭제 아이콘 노출 — 스냅샷헤더/항목명/열헤더 공용. */
+.re-hover-label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.re-hover-actions {
+  display: inline-flex;
+  gap: 0.2rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.re-hover-label:hover .re-hover-actions,
+.re-hover-actions:focus-within { opacity: 1; }
+.re-hover-actions .btn { padding: 0.05rem 0.35rem; }
+
+.re-item-row.is-locked td { background: var(--jf-bg-sunken); color: var(--jf-text-muted); }
+.re-cell-editable { cursor: pointer; }
+.re-cell-editable:hover { outline: 1px solid var(--jf-primary); outline-offset: -1px; }
+.re-cell-locked { cursor: not-allowed; }
+.re-totals-row td { font-weight: 700; border-top: 1px solid var(--jf-border); }
+.re-add-row td { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+
+.re-popover {
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 220px;
+  padding: 0.85rem;
+  background: var(--jf-bg-elevated);
+  border: 1px solid var(--jf-border);
+  border-radius: var(--jf-radius);
+  box-shadow: var(--jf-shadow);
+}
+.re-popover-row { display: flex; align-items: center; gap: 0.5rem; }
+.re-popover-row label { flex: 0 0 auto; color: var(--jf-text-muted); font-size: 0.85rem; }
+.re-popover-footer { display: flex; justify-content: flex-end; }
