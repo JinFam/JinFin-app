@@ -301,6 +301,12 @@ window.JF = window.JF || {};
   var PUT_SPACING_MS = 1100; // 2차 레이트리밋: 쓰기 간 ≥1초
 
   function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+  // 원격에서 들어온 섹션 값은 raw JSON이라 로컬 load()가 거치는 schema.migrate()를
+  // 안 거친다 — adoptRemote/poll()로 만든 merged를 persist/emit하기 직전 반드시 통과시켜야
+  // 구버전 필드값(예: 지출 type 리네이밍)이 이 기기에서 조용히 되살아나지 않는다.
+  function migrateState(s) {
+    return (JF.schema && typeof JF.schema.migrate === "function") ? JF.schema.migrate(s) : s;
+  }
   // _mirror는 "마지막 동기화 값"의 독립 스냅샷이어야 함. extractSection이 state의 참조를
   // 그대로 돌려주므로, 클론 없이 저장하면 mirror가 live state를 별칭(alias)해 in-place 변경
   // (예: 체크박스 d.checked 토글)이 diff에서 감지되지 않아 push가 안 됨. 반드시 클론 저장.
@@ -503,7 +509,7 @@ window.JF = window.JF || {};
               markAdopted(); _sha = remote.sha;
               pushAllLocalOverRemote(initialState).then(function () { emit(initialState); status("synced"); afterReconcile(); resolve(); });
             } else {
-              var merged = adoptRemote(initialState, remote.values, remote.sha);
+              var merged = migrateState(adoptRemote(initialState, remote.values, remote.sha));
               markAdopted(); persistLocal(merged); emit(merged); status("adopted"); afterReconcile(); resolve();
             }
           });
@@ -539,6 +545,7 @@ window.JF = window.JF || {};
         markDirty(s);
         retrySections.push(s);
       });
+      merged = migrateState(merged);
       markAdopted(); persistLocal(merged); emit(merged); statusAfterSync(); afterReconcile();
       // 재부팅 직후이므로 디바운스(타이핑 배칭용) 없이 곧바로 재전송해 노출 창을 최소화.
       retrySections.forEach(function (s) { enqueuePush(s); });
@@ -597,7 +604,7 @@ window.JF = window.JF || {};
           setMirror(section, value);
           appliedAny = true;
         }
-        if (appliedAny) { persistLocal(merged); emit(merged); }
+        if (appliedAny) { merged = migrateState(merged); persistLocal(merged); emit(merged); }
         statusAfterSync();
         schedulePoll();
       });

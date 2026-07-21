@@ -6,7 +6,7 @@
   var JF = window.JF;
   var el = JF.ui.el;
   var state;
-  var tab = "고정";           // 고정 | 생활 | 교육 | 특수
+  var tab = "고정-카드";      // 고정-카드 | 고정-이체 | 생활 | 교육 | 특수
   var openId = null;          // 편집 열린 항목 id
   var perfMonth = null;       // 실적 패널 선택 월(YYYY-MM) — 재렌더시 유지(사용자 선택 보존)
   var loanSchedules = {};     // 자동 모드 대출 항목용 스케줄 맵(render() 시작부에서 재계산)
@@ -67,7 +67,7 @@
   function renderTabs() {
     var host = document.getElementById("exp-tabs");
     host.innerHTML = "";
-    var bar = el("div", { class: "field-row" }, ["대출", "고정", "생활", "교육", "특수", "추가"].map(function (t) {
+    var bar = el("div", { class: "field-row" }, ["대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].map(function (t) {
       return el("button", { class: "btn btn-sm " + (tab === t ? "btn-primary" : "btn-secondary"),
         onClick: function () { tab = t; openId = null; render(); } }, t);
     }));
@@ -210,6 +210,17 @@
     } });
     body.appendChild(el("div", { class: "field-row" }, [el("label", null, "이름:"), name, el("label", null, "분류:"), cat, catPicker]));
     body.appendChild(catDatalist());
+
+    // 고정-카드/고정-이체: 결제수단이 바뀌면 탭도 옮길 수 있게 종류 전환 셀렉트 제공.
+    if (tab === "고정-카드" || tab === "고정-이체") {
+      var fixedKindSel = el("select", { onChange: function () {
+        item.type = fixedKindSel.value; save();
+      } }, [
+        el("option", { value: "고정-카드", selected: item.type === "고정-카드" }, "고정-카드"),
+        el("option", { value: "고정-이체", selected: item.type === "고정-이체" }, "고정-이체")
+      ]);
+      body.appendChild(el("div", { class: "field-row" }, [el("label", null, "고정 종류:"), fixedKindSel]));
+    }
 
     // 특수: 모드 선택
     if (isSpecialTab()) {
@@ -583,7 +594,7 @@
     JF.ui.renderNav("expenses.html");
     state = JF.store.load();
     var params = new URLSearchParams(location.search);
-    var t = params.get("tab"); if (t && ["대출", "고정", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
+    var t = params.get("tab"); if (t && ["대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
     var o = params.get("open"); if (o) openId = o;
     perfMonth = JF.format.ymCompare(state.meta.currentMonth, state.meta.horizon.start) < 0
       ? state.meta.horizon.start : state.meta.currentMonth;

@@ -9,7 +9,7 @@ window.JF = window.JF || {};
     return {
       id: '',
       name: '',
-      type: '고정', // "고정" | "생활" | "교육" | "추가"(일회성)  ("특수"는 state.specials)
+      type: '고정-카드', // "고정-카드" | "고정-이체" | "생활" | "교육" | "추가"(일회성)  ("특수"는 state.specials)
       category: '',
       recurrence: { kind: 'monthly', startMonth: null, endMonth: null },
       effectiveValues: [ { fromMonth: null, plannedAmount: 0, actualAmount: null } ],
@@ -202,6 +202,13 @@ window.JF = window.JF || {};
     };
     (state.expenses || []).forEach(normRec);
     (state.specials || []).forEach(normRec);
+    // "고정" 단일 탭 폐지(2026-07-22) → "고정-카드"/"고정-이체"로 분리. 기존 결제수단
+    // (assignedCardId==="transfer") 기준 자동 분류, 그 외(카드/미배정)는 고정-카드로.
+    (state.expenses || []).forEach(function (it) {
+      if (it && it.type === '고정') {
+        it.type = (it.assignedCardId === 'transfer') ? '고정-이체' : '고정-카드';
+      }
+    });
 
     // 대출계산기 배열 보장 + 케이스 하위필드 정규화(동기화/구버전으로 유입된 부분 데이터 방어).
     if (!Array.isArray(state.loans)) state.loans = [];

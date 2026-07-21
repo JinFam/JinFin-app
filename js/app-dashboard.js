@@ -220,7 +220,7 @@
     tbody.appendChild(dataRow("성과급", bonusVals, { href: "income.html#bonus-card" }));
     tbody.appendChild(dataRow("추가 수입", extraVals, { href: "income.html#extra-card" }));
 
-    // 지출 — 대출(개별, 강조) + 특수(개별, 강조) + 고정/생활/교육/추가
+    // 지출 — 대출(개별, 강조) + 특수(개별, 강조) + 고정-카드/고정-이체/생활/교육/추가
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "지출")]));
     // 대출 개별행(탭 순서와 동일하게 특수보다 위). 특수처럼 집계 제외, 개별행 전용.
     (state.loanExpenses || []).forEach(function (li) {
@@ -235,8 +235,8 @@
       tbody.appendChild(dataRow(sp.name, vals, { rowClass: "row-highlight",
         href: "expenses.html?tab=" + encodeURIComponent("특수") + "&open=" + encodeURIComponent(sp.id) }));
     });
-    // 고정/생활/교육/추가 집계 (breakdown 사용은 hybrid 전용이므로 셀 합으로 재계산해 모드 일관성 유지)
-    ["고정", "생활", "교육", "추가"].forEach(function (type) {
+    // 고정-카드/고정-이체/생활/교육/추가 집계 (breakdown 사용은 hybrid 전용이므로 셀 합으로 재계산해 모드 일관성 유지)
+    ["고정-카드", "고정-이체", "생활", "교육", "추가"].forEach(function (type) {
       var vals = {}, any = false;
       months.forEach(function (m) {
         var sum = 0, hit = false;
@@ -289,7 +289,7 @@
         months.forEach(function (m) { if (vmap[m] && vmap[m][sp.id] != null) { vv[m] = vmap[m][sp.id]; any = true; } });
         if (any) tbody.appendChild(dataRow(sp.name, vv, { negative: true, rowClass: "row-highlight" }));
       });
-      ["고정", "생활", "교육"].forEach(function (type) {
+      ["고정-카드", "고정-이체", "생활", "교육"].forEach(function (type) {
         var vv = {}, any = false;
         months.forEach(function (m) {
           var sum = 0, hit = false;

@@ -343,7 +343,7 @@ var JF = (typeof window !== 'undefined')
 
       var expenseHybrid = 0, expensePlan = 0, expenseActual = 0;
       // 대출: 0 — 대출 항목은 type 필드가 없어 이 맵으로 집계되지 않음(개별행 전용). 일관성 위해 키만 유지.
-      var breakdown = { salary: salary, bonus: bonusCashSum, extra: extraCashSum, 고정: 0, 생활: 0, 교육: 0, 특수: 0, 추가: 0, 대출: 0 };
+      var breakdown = { salary: salary, bonus: bonusCashSum, extra: extraCashSum, "고정-카드": 0, "고정-이체": 0, 생활: 0, 교육: 0, 특수: 0, 추가: 0, 대출: 0 };
       var itemVariance = [];
 
       for (var ii = 0; ii < allItems.length; ii++) {
