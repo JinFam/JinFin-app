@@ -462,15 +462,19 @@
     svg.addEventListener("touchstart", hideTooltip, { passive: true });
   }
 
-  function renderGranSeg() {
+  function renderGranSegFor(current, onSelect) {
     var opts = [["month", "월"], ["week", "주"], ["day", "일"]];
     return el("div", { class: "seg-group" }, opts.map(function (o) {
       return el("button", {
         type: "button",
-        class: "btn btn-sm seg-btn" + (granularity === o[0] ? " is-active" : ""),
-        onClick: function () { granularity = o[0]; render(); }
+        class: "btn btn-sm seg-btn" + (current === o[0] ? " is-active" : ""),
+        onClick: function () { onSelect(o[0]); }
       }, o[1]);
     }));
+  }
+
+  function renderGranSeg() {
+    return renderGranSegFor(granularity, function (g) { granularity = g; render(); });
   }
 
   function renderLegend(banks) {
@@ -522,14 +526,7 @@
   }
 
   function renderDiffGranSeg() {
-    var opts = [["month", "월"], ["week", "주"], ["day", "일"]];
-    return el("div", { class: "seg-group" }, opts.map(function (o) {
-      return el("button", {
-        type: "button",
-        class: "btn btn-sm seg-btn" + (diffGranularity === o[0] ? " is-active" : ""),
-        onClick: function () { diffGranularity = o[0]; renderDiffSection(); }
-      }, o[1]);
-    }));
+    return renderGranSegFor(diffGranularity, function (g) { diffGranularity = g; renderDiffSection(); });
   }
 
   // renderDiffSection: "금리 차이 비교" — 드롭다운 2개로 고른 (A - B) 시계열 하나를 그린다.
