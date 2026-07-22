@@ -14,6 +14,12 @@
   var diffGranularity = "month";
   var diffIdA = null, diffIdB = null; // 첫 렌더 시 기본값 설정(신한/제일 금융채6개월)
 
+  // ---- 한국은행 기준금리 수동 갱신(요구사항: 매일 자동 갱신 아님, 클릭 시에만 스크래핑) ----
+  var BOK_BASE_RATE_URL = "https://www.bok.or.kr/portal/singl/baseRate/list.do?dataSeCd=01&menuNo=200643";
+  var BOK_MIN_KEEP_RATIO = 0.5; // 새 파싱 결과가 기존 데이터의 이 비율 미만이면 교체 거부(신한/SC 일일 갱신 스크립트의 replaceIfNotShrunk와 동일한 안전장치)
+  var bokRefreshing = false;
+  var bokRefreshMsg = "";
+
   // ---- 차트 캔버스 상수(뷰박스 좌표계, 반응형 표시폭과 무관) ----
   var CHART_W = 960, CHART_H = 320;
   var CHART_M = { top: 14, right: 16, bottom: 30, left: 54 };
@@ -175,10 +181,13 @@
 
   function startPan(clientX) {
     panState = { startClientX: clientX, startMinT: viewMinT, startMaxT: viewMaxT };
-    if (currentSvgNode) currentSvgNode.className = svgBaseClass();
+    // SVGElement.className은 실 브라우저에서 getter만 있는 SVGAnimatedString이라 대입하면
+    // TypeError("Cannot set property className...")가 던져진다(svgEl()이 class를 setAttribute로
+    // 쓰는 것과 같은 이유) — 반드시 setAttribute를 써야 한다.
+    if (currentSvgNode) currentSvgNode.setAttribute("class", svgBaseClass());
   }
   function endPan() {
-    if (currentSvgNode) currentSvgNode.className = "rate-chart-svg";
+    if (currentSvgNode) currentSvgNode.setAttribute("class", "rate-chart-svg");
     panState = null;
   }
   function endPinch() {
@@ -334,15 +343,32 @@
       if (!pts.length) return;
       // null(diffSeries의 한쪽만 있는 날짜 등)은 점을 찍지 않고 그 지점에서 선을 끊는다("M"으로
       // 재시작) — 0으로 이어그리면 diffSeries가 막으려던 "허위 0"이 그대로 재현된다.
+      // b.stepped(한국은행 기준금리 등 정책금리 스텝 함수)는 두 점을 직선 보간하지 않는다 —
+      // 변경일 전까지는 이전 값이 그대로 유지되었다는 사실을 표현하려면 수평 유지 후 수직 변경인
+      // 계단형이어야 하고, 직선 보간은 "그 사이 서서히 변했다"는 허위 인상을 준다.
       var d = "";
       var breakNext = true;
+      var lastX = null, lastY = null;
       pts.forEach(function (p) {
         if (p.value == null) { breakNext = true; return; }
         var x = xPix(keyToTime(p.key, gran));
         var y = yPix(p.value);
-        d += (breakNext ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1) + " ";
+        if (breakNext) {
+          d += "M" + x.toFixed(1) + "," + y.toFixed(1) + " ";
+        } else if (b.stepped) {
+          d += "L" + x.toFixed(1) + "," + lastY.toFixed(1) + " L" + x.toFixed(1) + "," + y.toFixed(1) + " ";
+        } else {
+          d += "L" + x.toFixed(1) + "," + y.toFixed(1) + " ";
+        }
         breakNext = false;
+        lastX = x; lastY = y;
       });
+      // 계단형 시리즈의 마지막 변경 이후로는 아직 다음 변경이 없다는 뜻 — "현재까지 그 값이
+      // 유지 중"임을 보이도록 차트 오른쪽 끝(maxT)까지 수평 연장한다.
+      if (b.stepped && lastX != null) {
+        var edgeX = xPix(maxT);
+        if (edgeX > lastX) d += "L" + edgeX.toFixed(1) + "," + lastY.toFixed(1) + " ";
+      }
       nodes.push(svgEl("path", { d: d, class: "rate-line", style: "stroke:" + b.color }));
 
       if (pts.length <= MARKER_THRESHOLD) {
@@ -399,20 +425,35 @@
   }
 
   // nearestRows(banks, seriesByBank, gran, hiddenSet, targetT) — 보이는(숨김 아닌) 각 시리즈에서
-  // targetT(마우스 아래 시각, ms)에 가장 가까운 집계 포인트의 값을 찾아 [{label,value,color}] 반환.
-  // 은행마다 고시일이 달라도(신한/제일 발표일 불일치) 각자 가장 가까운 값을 독립적으로 찾는다.
+  // targetT(마우스 아래 시각, ms)에 표시할 값을 찾아 [{label,value,color}] 반환.
+  // 은행마다 고시일이 달라도(신한/제일 발표일 불일치) 각자 독립적으로 찾는다.
   function nearestRows(banks, seriesByBank, gran, hiddenSet, targetT) {
     var rows = [];
     banks.forEach(function (b) {
       if (hiddenSet[b.id]) return;
       var agg = JF.rates.aggregate(seriesByBank[b.id] || [], gran);
-      var best = null, bestDist = Infinity;
-      agg.forEach(function (p) {
-        if (p.value == null) return;
-        var t = keyToTime(p.key, gran);
-        var dist = Math.abs(t - targetT);
-        if (dist < bestDist) { bestDist = dist; best = p; }
-      });
+      var best = null;
+      if (b.stepped) {
+        // 계단형(한국은행 기준금리 등): 변경 간격이 수년일 수 있어(예: 2023-01~2024-10) 단순
+        // 절대거리 최근접을 쓰면 아직 발효 전인 미래 변경값을 잘못 보여줄 수 있다 — targetT
+        // 시점에 "실제로 적용 중이던" 값, 즉 targetT 이전 마지막 변경점을 찾는다.
+        agg.forEach(function (p) {
+          if (p.value == null) return;
+          if (keyToTime(p.key, gran) <= targetT) best = p;
+        });
+        if (!best) {
+          for (var i = 0; i < agg.length; i++) {
+            if (agg[i].value != null) { best = agg[i]; break; }
+          }
+        }
+      } else {
+        var bestDist = Infinity;
+        agg.forEach(function (p) {
+          if (p.value == null) return;
+          var dist = Math.abs(keyToTime(p.key, gran) - targetT);
+          if (dist < bestDist) { bestDist = dist; best = p; }
+        });
+      }
       if (best) rows.push({ label: b.label, value: best.value, color: b.color });
     });
     return rows;
@@ -491,6 +532,42 @@
     }));
   }
 
+  // refreshBokBaseRate() — "한국 기준금리 갱신" 버튼 클릭 시에만 실행(요구사항: 변경 시기가
+  // 불규칙해 일일 자동 갱신 대상이 아님). BOK 페이지를 직접 fetch해 파싱하고, 결과가 기존
+  // 데이터의 BOK_MIN_KEEP_RATIO 미만이면(페이지 구조 변경 등으로 파싱이 깨졌다는 신호) 기존
+  // 내장 이력을 덮어쓰지 않고 거부한다 — 세션 메모리만 갱신(localStorage 없음), 새로고침하면
+  // 다시 내장 정적 데이터로 돌아간다.
+  function refreshBokBaseRate() {
+    if (bokRefreshing) return;
+    bokRefreshing = true;
+    bokRefreshMsg = "";
+    renderChartSection();
+    fetch(BOK_BASE_RATE_URL, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      })
+      .then(function (html) {
+        var rows = JF.rates.parseBokBaseRateTable(html);
+        var existing = JF.ratesData.series.bok_base || [];
+        if (rows.length < Math.max(1, existing.length * BOK_MIN_KEEP_RATIO)) {
+          throw new Error("페이지 구조가 바뀐 것 같습니다(수신 " + rows.length + "행, 기존 " + existing.length + "행) — 갱신을 건너뜁니다");
+        }
+        JF.ratesData.series.bok_base = rows;
+        bokRefreshMsg = "갱신 완료 · 최신 " + rows[rows.length - 1][0] + " (" + rows[rows.length - 1][1].toFixed(2) + "%)";
+        fullMinT = null; fullMaxT = null;
+        ensureFullRange();
+        render();
+      })
+      .catch(function (err) {
+        bokRefreshMsg = "갱신 실패: " + (err && err.message ? err.message : String(err));
+      })
+      .then(function () {
+        bokRefreshing = false;
+        renderChartSection();
+      });
+  }
+
   function renderChartSection() {
     var host = document.getElementById("rates-chart");
     if (!host) return;
@@ -500,14 +577,20 @@
         el("h2", { class: "card-title" }, "금리 그래프"),
         el("div", { class: "field-row" }, [
           renderGranSeg(),
-          el("button", { type: "button", class: "btn btn-sm btn-ghost", onClick: resetZoom }, "전체보기")
+          el("button", { type: "button", class: "btn btn-sm btn-ghost", onClick: resetZoom }, "전체보기"),
+          el("button", {
+            type: "button", class: "btn btn-sm btn-ghost", disabled: bokRefreshing,
+            onClick: refreshBokBaseRate
+          }, bokRefreshing ? "갱신 중…" : "한국 기준금리 갱신")
         ])
       ]),
       el("div", { class: "rate-chart-wrap" }, buildChart(JF.ratesData.banks, JF.ratesData.series, granularity, hidden)),
       renderLegend(JF.ratesData.banks),
+      bokRefreshMsg ? el("p", { class: "muted rate-caption" }, bokRefreshMsg) : null,
       el("p", { class: "muted rate-caption" },
         "마우스 휠(또는 모바일 핀치)로 확대/축소, 드래그로 좌우 이동. " +
-        "금융채6개월 기준금리 — 신한은행은 일별 고시값, SC제일은행은 최근 10영업일 평균(은행 공시 산출 방식)이라 두 값을 직접 비교할 때 참고하세요.")
+        "금융채6개월 기준금리 — 신한은행은 일별 고시값, SC제일은행은 최근 10영업일 평균(은행 공시 산출 방식)이라 두 값을 직접 비교할 때 참고하세요. " +
+        "한국은행 기준금리는 계단형으로 표시되며(변경일에만 값이 바뀜), \"한국 기준금리 갱신\" 버튼을 눌러야 최신 값을 반영합니다.")
     ]));
   }
 
@@ -536,7 +619,11 @@
   function renderDiffSection() {
     var host = document.getElementById("rates-diff");
     if (!host) return;
-    var banks = JF.ratesData.banks;
+    // b.stepped(한국은행 기준금리 등 정책금리 스텝 함수)는 여기서 제외한다 — diffSeries는
+    // 날짜 합집합에서 한쪽이라도 값이 없으면 null을 내는데, stepped 시리즈는 변경일에만
+    // 값이 있어(연 1~8회) 일별 시리즈와 짝지으면 대부분 null인 희소한 "가짜 연속선"을
+    // 그리게 된다 — as-of(직전 값 유지) 개념 없이는 diff 비교가 오해를 부른다.
+    var banks = JF.ratesData.banks.filter(function (b) { return !b.stepped; });
     if (!banks.length) return;
 
     if (diffIdA == null || !banks.some(function (b) { return b.id === diffIdA; })) diffIdA = banks[0].id;

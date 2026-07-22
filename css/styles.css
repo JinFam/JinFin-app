@@ -93,6 +93,9 @@
   --jf-rate-scfirst-3: #158448;
   --jf-rate-scfirst-4: #1aa75b;
   --jf-rate-scfirst-5: #20cb6e;
+  /* 한국은행 기준금리(신한/제일 두 hue 계열과 무관한 3번째 카테고리) — validate_palette.js
+     (categorical, shinhan/scfirst 대표 톤 대비) 통과. */
+  --jf-rate-bok: #4a3aa7;
 
   --jf-shadow: 0 1px 2px rgba(20, 30, 50, 0.06), 0 4px 14px rgba(20, 30, 50, 0.06);
   --jf-radius: 12px;
@@ -136,6 +139,7 @@
     --jf-rate-scfirst-3: #46cd83;
     --jf-rate-scfirst-4: #86dfae;
     --jf-rate-scfirst-5: #bfeed4;
+    --jf-rate-bok: #7d6fdb;
 
     --jf-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.35);
   }

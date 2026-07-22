@@ -126,6 +126,26 @@ var JF = (typeof window !== 'undefined')
     });
   }
 
+  // parseBokBaseRateTable(html) — 한국은행 기준금리 페이지(<table class="fixed">, 캡션
+  // "한국은행 기준금리 추이") HTML 문자열을 파싱해 [[date, rate], ...] 오름차순 배열로 반환.
+  // 순수 문자열 정규식 파싱(DOM 불필요) — 브라우저 fetch 응답 텍스트와 Node 테스트 양쪽에서 동일 동작.
+  // 월/일이 한 자리 표기("7월 6일")일 가능성까지 대비해 \d{1,2}로 매칭 후 코드에서 0-패딩한다.
+  function parseBokBaseRateTable(html) {
+    var tableMatch = String(html || "").match(/<table class="fixed">[\s\S]*?<\/table>/);
+    if (!tableMatch) return [];
+    var tableHtml = tableMatch[0];
+    var rowRe = /<tr>\s*<td class="fb">(\d{4})<\/td>\s*<td>(\d{1,2})월\s*(\d{1,2})일<\/td>\s*<td>([\d.]+)<\/td>\s*<\/tr>/g;
+    var rows = [];
+    var m;
+    while ((m = rowRe.exec(tableHtml))) {
+      var rate = parseFloat(m[4]);
+      if (isNaN(rate)) continue;
+      rows.push([m[1] + "-" + pad2(parseInt(m[2], 10)) + "-" + pad2(parseInt(m[3], 10)), rate]);
+    }
+    rows.sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+    return rows;
+  }
+
   JF.rates = {
     monthKey: monthKey,
     mondayOf: mondayOf,
@@ -133,7 +153,8 @@ var JF = (typeof window !== 'undefined')
     mergeByDate: mergeByDate,
     listMonths: listMonths,
     monthRows: monthRows,
-    diffSeries: diffSeries
+    diffSeries: diffSeries,
+    parseBokBaseRateTable: parseBokBaseRateTable
   };
 })(JF);
 
