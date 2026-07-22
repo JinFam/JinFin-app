@@ -53,6 +53,7 @@ var JF = (typeof window !== 'undefined')
     var counts = {};
 
     for (var i = 0; i < series.length; i++) {
+      if (series[i][1] == null) continue; // null-safe: 결측(diffSeries의 구멍 등)은 0으로 취급하지 않고 집계에서 제외
       var k = keyFn(series[i][0]);
       if (!(k in sums)) {
         sums[k] = 0;
@@ -114,13 +115,25 @@ var JF = (typeof window !== 'undefined')
     return (mergedRows || []).filter(function (r) { return monthKey(r.date) === ym; });
   }
 
+  // diffSeries(seriesA, seriesB) — 두 시계열의 날짜 합집합에서 (A - B)를 계산.
+  // 둘 중 하나라도 그 날짜에 값이 없으면 diff도 null(허위 0 방지, 라인이 끊김).
+  // 반환: [[date, diffOrNull], ...] 날짜 오름차순 — aggregate()에 그대로 넣을 수 있는 형태.
+  function diffSeries(seriesA, seriesB) {
+    var merged = mergeByDate({ a: seriesA || [], b: seriesB || [] });
+    return merged.map(function (row) {
+      var diff = (row.a == null || row.b == null) ? null : round2(row.a - row.b);
+      return [row.date, diff];
+    });
+  }
+
   JF.rates = {
     monthKey: monthKey,
     mondayOf: mondayOf,
     aggregate: aggregate,
     mergeByDate: mergeByDate,
     listMonths: listMonths,
-    monthRows: monthRows
+    monthRows: monthRows,
+    diffSeries: diffSeries
   };
 })(JF);
 

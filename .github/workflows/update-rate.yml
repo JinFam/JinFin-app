@@ -1,12 +1,28 @@
 name: Update loan base rate
 
-# SC제일은행 여신기준금리(금융채 6개월제)를 매 영업일 받아 rate.json 갱신.
-# 값이 바뀔 때만 커밋한다. 실패하면 job 자체가 실패(조용한 정지 방지).
+# 신한은행/SC제일은행 9개 금리 시계열(금융채6개월/5년, COFIX 신규취급액/잔액/신잔액기준)을
+# 매일 15:00 KST에 받아 data/rates.json + js/rates-data.js(생성물) + rate.json(레거시 스냅샷,
+# 헤더 배지/대출계산기 연동금리 하위호환 유지)을 갱신한다. 값이 바뀔 때만 커밋한다.
+# SC 스텝은 실패하면 job 전체가 실패(조용한 정지 방지, 안정적인 소스라 하드 실패가 맞음).
+# 신한 스크래핑(Playwright, WebSquare)은 SC curl보다 훨씬 깨지기 쉬워서(봇 탐지/셀렉터 변경 등)
+# 일부러 continue-on-error: 신한 3개 스텝이 실패해도 SC 5개 시리즈 + 레거시 rate.json은 계속
+# 갱신된다(architect review MEDIUM-2 반영 — 이전 버전은 신한 실패 시 전체가 죽어 헤더 배지/
+# 대출계산기까지 같이 stale해지는 회귀가 있었음). update-rates-daily.js가 신한 응답 누락/파싱
+# 실패를 조용히 건너뛰도록 이미 방어돼 있음.
 # 조직이 GITHUB_TOKEN 쓰기를 막아두어, 되커밋은 RATE_PUSH_TOKEN(개인 PAT 시크릿)으로 한다.
+#
+# 설계 근거: .omc/plans/rates-tab-expansion-plan.md, .omc/progress.txt(US-001~US-008 항목).
+# SC측 5개 시리즈(6개월/5년/COFIX x3)는 기존에 이미 쓰던 selectLoanBaseRate 응답 하나에 전부
+# 들어있음(필드만 더 파싱) — START_DATE/END_DATE 무관하게 항상 전체 이력 반환하는 것도 확인됨.
+# COFIX는 신한 라벨도 이 SC 응답 값을 그대로 참조(은행마다 다시 스크래핑하지 않음 — 두 은행이
+# 표시하는 COFIX는 원래 전국은행연합회가 발표하는 동일한 전국 공시값이라 실측으로 일치 확인함).
+# 신한 금융채6개월/5년만 신한 페이지(WebSquare)를 헤드리스 브라우저로 읽어야 한다 — 이 페이지는
+# 기준일자 하나만 입력받는 단순 폼이라 plain curl로는 안 되고(URL 파라미터 지름길 없음, 실측
+# 확인됨), Playwright로 렌더 후 그리드 셀을 헤더 텍스트로 찾아 읽는다(scripts/fetch-shinhan.js).
 
 on:
   schedule:
-    - cron: "10 0 * * *"     # 매일 09:10 KST (UTC 00:10). GitHub 예약은 수 분~수십 분 지연될 수 있음.
+    - cron: "0 6 * * *"      # 매일 15:00 KST (UTC 06:00). GitHub 예약은 수 분~수십 분 지연될 수 있음.
   workflow_dispatch: {}
 
 concurrency:
@@ -23,30 +39,68 @@ jobs:
           # 되커밋에 PAT가 필요하다. 없거나 만료되면 이 단계에서 실패 → 방치 시 즉시 알림.
           token: ${{ secrets.RATE_PUSH_TOKEN }}
 
-      - name: Fetch SC 금융채 6개월 기준금리
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch SC 금융채6개월/5년/COFIX(신규·잔액·신잔액)기준 — 응답 하나에 5개 시리즈 전부
         run: |
           set -euo pipefail
           BASE_DT="$(date -u -d '+9 hours' +%Y%m%d)"   # 오늘(KST)
           echo "BASE_DT=$BASE_DT"
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36'
-          resp="$(curl -sS -m 60 -A "$UA" \
+          curl -sS -m 60 -A "$UA" \
             -H 'Content-Type: application/json; charset=UTF-8' \
             -H 'X-Requested-With: XMLHttpRequest' \
             -H 'Referer: https://www.standardchartered.co.kr/np/kr/pl/et/StandardInterestRateP.jsp' \
             -X POST 'https://www.standardchartered.co.kr/np/kr/pl/et/selectLoanBaseRate' \
-            --data "{\"serviceID\":\"HP_FP_PL_LoanBaseRate.selectLoanBaseRate\",\"task\":\"com.scfirstbank.web.fp.pl.task.HP_FP_PL_LoanBaseRateTask\",\"action\":\"selectLoanBaseRate\",\"BASE_DT\":\"$BASE_DT\",\"START_DATE\":\"\",\"END_DATE\":\"\"}")"
+            --data "{\"serviceID\":\"HP_FP_PL_LoanBaseRate.selectLoanBaseRate\",\"task\":\"com.scfirstbank.web.fp.pl.task.HP_FP_PL_LoanBaseRateTask\",\"action\":\"selectLoanBaseRate\",\"BASE_DT\":\"$BASE_DT\",\"START_DATE\":\"\",\"END_DATE\":\"\"}" \
+            -o sc_response.json
 
-          # JSON인지 확인(Incapsula/차단 시 HTML이 오면 여기서 실패)
-          if ! printf '%s' "$resp" | jq -e '.vector[0].LOAN_BASE' >/dev/null 2>&1; then
-            echo "::error::응답이 예상 JSON이 아님(차단/구조변경 가능). 앞부분:"; printf '%s' "$resp" | head -c 300; echo; exit 1
+          if ! jq -e '.vector[0].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE' sc_response.json >/dev/null 2>&1; then
+            echo "::error::SC 응답이 예상 JSON이 아님(차단/구조변경 가능). 앞부분:"; head -c 300 sc_response.json; echo; exit 1
           fi
 
+      # 아래 신한 3개 스텝은 모두 continue-on-error — 실패해도 이후 스텝(SC 5개 시리즈 갱신,
+      # 레거시 rate.json, 커밋)은 정상 진행한다(위 헤더 주석 참고).
+      - name: Playwright 설치(npm) — 신한 스크래핑용, WebSquare라 curl 불가(§2.3)
+        continue-on-error: true
+        run: npm install --no-save playwright
+
+      # chromium-headless-shell만 있으면 됨(--with-deps 없이도 이 페이지엔 충분함을 로컬 검증).
+      - name: Cache Playwright browsers
+        continue-on-error: true
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}
+
+      - name: Install Playwright chromium
+        continue-on-error: true
+        run: npx playwright install chromium
+
+      - name: Run 신한 스크래핑
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          node scripts/fetch-shinhan.js > shinhan_response.json
+          cat shinhan_response.json
+
+      - name: data/rates.json 갱신 + js/rates-data.js 재생성 (신한 실패 시에도 SC 5개 시리즈는 갱신됨)
+        run: |
+          set -euo pipefail
+          node scripts/update-rates-daily.js sc_response.json shinhan_response.json
+          node scripts/generate-rates-data.js
+
+      - name: 레거시 rate.json 스냅샷 갱신 (헤더 배지·대출계산기 연동금리 하위호환 유지 — 필드 불변)
+        run: |
+          set -euo pipefail
           BASE_REF="2026-07-01"   # 비교 기준일(고정). 바꾸려면 이 값 수정.
-          rate="$(printf '%s'  "$resp" | jq -r '.vector[0].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE')"
-          asof="$(printf '%s'  "$resp" | jq -r '.vector[0].LOAN_BASE.BASE_DT')"
-          prate="$(printf '%s' "$resp" | jq -r '.vector[1].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE // ""')"
-          pasof="$(printf '%s' "$resp" | jq -r '.vector[1].LOAN_BASE.BASE_DT // ""')"
-          brate="$(printf '%s' "$resp" | jq -r --arg d "$BASE_REF" '[.vector[].LOAN_BASE|select(.BASE_DT==$d)][0].FNANCL_BOND_6_MH_EXPIRE // ""')"
+          rate="$(jq -r '.vector[0].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE' sc_response.json)"
+          asof="$(jq -r '.vector[0].LOAN_BASE.BASE_DT' sc_response.json)"
+          prate="$(jq -r '.vector[1].LOAN_BASE.FNANCL_BOND_6_MH_EXPIRE // ""' sc_response.json)"
+          pasof="$(jq -r '.vector[1].LOAN_BASE.BASE_DT // ""' sc_response.json)"
+          brate="$(jq -r --arg d "$BASE_REF" '[.vector[].LOAN_BASE|select(.BASE_DT==$d)][0].FNANCL_BOND_6_MH_EXPIRE // ""' sc_response.json)"
           echo "rate=$rate asOf=$asof prev=$prate($pasof) base=$brate($BASE_REF)"
 
           echo "$rate" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || { echo "::error::금리 형식 이상: '$rate'"; exit 1; }
@@ -60,12 +114,13 @@ jobs:
       - name: Commit if changed
         run: |
           set -euo pipefail
-          if [ -f rate.json ] && cmp -s rate.json.new rate.json; then
+          rm -f sc_response.json shinhan_response.json
+          if [ -f rate.json ] && cmp -s rate.json.new rate.json && git diff --quiet -- data/rates.json js/rates-data.js; then
             echo "변동 없음 — 커밋 생략"; rm -f rate.json.new; exit 0
           fi
           mv rate.json.new rate.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rate.json
-          git commit -m "chore: 기준금리 갱신(금융채 6개월) [skip ci]"
+          git add rate.json data/rates.json js/rates-data.js
+          git commit -m "chore: 금리 9종 갱신(금융채6개월/5년, COFIX 신규/잔액/신잔액) [skip ci]"
           git push

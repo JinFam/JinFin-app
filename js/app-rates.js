@@ -10,6 +10,10 @@
   var hidden = {};           // bankId -> true(숨김)
   var currentYm = null;      // 표 섹션 현재 페이지("YYYY-MM"), 첫 렌더 시 최신월로 설정
 
+  // ---- 금리 차이 비교(신규) — 줌/팬 없음(전체 기간 고정), 시리즈 2개 직접 선택형 ----
+  var diffGranularity = "month";
+  var diffIdA = null, diffIdB = null; // 첫 렌더 시 기본값 설정(신한/제일 금융채6개월)
+
   // ---- 차트 캔버스 상수(뷰박스 좌표계, 반응형 표시폭과 무관) ----
   var CHART_W = 960, CHART_H = 320;
   var CHART_M = { top: 14, right: 16, bottom: 30, left: 54 };
@@ -123,7 +127,14 @@
   }
 
   function clientToUserX(clientX) {
-    var rect = currentSvgNode.getBoundingClientRect();
+    return clientToUserXFor(currentSvgNode, clientX);
+  }
+
+  // clientToUserXFor(svgNode, clientX) — clientToUserX의 svg-매개변수화 버전.
+  // 줌/팬이 없는 차트(금리 차이 비교)는 currentSvgNode(메인 차트 전용 모듈 전역)를
+  // 공유하지 않고 자기 자신의 svg 노드를 직접 넘겨 좌표를 계산한다.
+  function clientToUserXFor(svgNode, clientX) {
+    var rect = svgNode.getBoundingClientRect();
     if (!rect.width) return CHART_M.left;
     return (clientX - rect.left) / rect.width * CHART_W;
   }
@@ -241,14 +252,23 @@
     svg.addEventListener("wheel", onWheel, { passive: false });
     svg.addEventListener("mousedown", onMouseDown);
     svg.addEventListener("touchstart", onTouchStart, { passive: false });
+    attachTooltipHandlers(svg, function () {
+      return {
+        banks: JF.ratesData.banks, seriesByBank: JF.ratesData.series,
+        gran: granularity, hiddenSet: hidden, minT: viewMinT, maxT: viewMaxT
+      };
+    });
   }
 
   // computeChartNodes: 보이는 은행들의 집계 시계열을, 현재 확대/이동 창(viewMinT~viewMaxT) 기준으로
   // 그린 svg 자식 노드 배열을 반환(순수 계산, DOM 부착 없음). 월/주/일은 "창 안에서" 집계 단위만
   // 바꾸고, 확대/축소/이동은 마우스 휠·드래그·핀치로 별도 처리(줌 창은 이 함수 밖의 모듈 상태).
-  function computeChartNodes(banks, seriesByBank, gran, hiddenSet) {
+  // minT/maxT 생략 시 메인 차트의 줌 창(viewMinT/viewMaxT)을 그대로 사용(기존 동작 유지).
+  // 명시적으로 넘기면(금리 차이 비교 등 줌 없는 차트) 그 범위로 고정 렌더.
+  function computeChartNodes(banks, seriesByBank, gran, hiddenSet, minT, maxT) {
     var W = CHART_W, H = CHART_H, M = CHART_M, plotW = CHART_PLOT_W, plotH = CHART_PLOT_H;
-    var minT = viewMinT, maxT = viewMaxT;
+    if (minT == null) minT = viewMinT;
+    if (maxT == null) maxT = viewMaxT;
 
     var visibleBanks = banks.filter(function (b) { return !hiddenSet[b.id]; });
     var visibleByBank = {};
@@ -270,7 +290,13 @@
         "표시할 데이터가 없습니다 (범례에서 은행을 선택하거나 전체보기를 눌러보세요)")];
     }
 
-    var values = allPoints.map(function (p) { return p.value; });
+    // null 값(diffSeries의 한쪽만 있는 날짜 등)은 min/max 계산에서 제외 — 안 그러면 0으로
+    // 새어 들어가 축 범위가 왜곡되고, 아래 라인/마커도 0에 찍혀 "허위 0"이 그려진다.
+    var values = allPoints.map(function (p) { return p.value; }).filter(function (v) { return v != null; });
+    if (!values.length) {
+      return [svgEl("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "rate-axis-text" },
+        "표시할 데이터가 없습니다 (범례에서 은행을 선택하거나 전체보기를 눌러보세요)")];
+    }
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
     var padV = Math.max((maxV - minV) * 0.1, 0.05);
@@ -306,15 +332,22 @@
       if (hiddenSet[b.id]) return;
       var pts = visibleByBank[b.id];
       if (!pts.length) return;
-      var d = pts.map(function (p, idx) {
+      // null(diffSeries의 한쪽만 있는 날짜 등)은 점을 찍지 않고 그 지점에서 선을 끊는다("M"으로
+      // 재시작) — 0으로 이어그리면 diffSeries가 막으려던 "허위 0"이 그대로 재현된다.
+      var d = "";
+      var breakNext = true;
+      pts.forEach(function (p) {
+        if (p.value == null) { breakNext = true; return; }
         var x = xPix(keyToTime(p.key, gran));
         var y = yPix(p.value);
-        return (idx === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
-      }).join(" ");
+        d += (breakNext ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1) + " ";
+        breakNext = false;
+      });
       nodes.push(svgEl("path", { d: d, class: "rate-line", style: "stroke:" + b.color }));
 
       if (pts.length <= MARKER_THRESHOLD) {
         pts.forEach(function (p) {
+          if (p.value == null) return;
           var x = xPix(keyToTime(p.key, gran));
           var y = yPix(p.value);
           nodes.push(svgEl("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: 2.6, class: "rate-point", style: "fill:" + b.color },
@@ -347,6 +380,86 @@
     var nodes = computeChartNodes(JF.ratesData.banks, JF.ratesData.series, granularity, hidden);
     currentSvgNode.textContent = "";
     nodes.forEach(function (n) { currentSvgNode.appendChild(n); });
+  }
+
+  // ---- 호버 크로스헤어 툴팁(메인 그래프 + 차이 비교 그래프 공통, 요구사항 #4) ----
+  // document.body에 position:fixed로 1개만 마운트(css/styles.css .rate-tooltip — 부동산 예산
+  // .re-popover와 동일 패턴, 스크롤 컨테이너 클리핑 회피).
+  var tooltipEl = null;
+  function ensureTooltipEl() {
+    if (tooltipEl) return tooltipEl;
+    tooltipEl = document.createElement("div");
+    tooltipEl.className = "rate-tooltip";
+    document.body.appendChild(tooltipEl);
+    return tooltipEl;
+  }
+
+  function hideTooltip() {
+    if (tooltipEl) tooltipEl.style.display = "none";
+  }
+
+  // nearestRows(banks, seriesByBank, gran, hiddenSet, targetT) — 보이는(숨김 아닌) 각 시리즈에서
+  // targetT(마우스 아래 시각, ms)에 가장 가까운 집계 포인트의 값을 찾아 [{label,value,color}] 반환.
+  // 은행마다 고시일이 달라도(신한/제일 발표일 불일치) 각자 가장 가까운 값을 독립적으로 찾는다.
+  function nearestRows(banks, seriesByBank, gran, hiddenSet, targetT) {
+    var rows = [];
+    banks.forEach(function (b) {
+      if (hiddenSet[b.id]) return;
+      var agg = JF.rates.aggregate(seriesByBank[b.id] || [], gran);
+      var best = null, bestDist = Infinity;
+      agg.forEach(function (p) {
+        if (p.value == null) return;
+        var t = keyToTime(p.key, gran);
+        var dist = Math.abs(t - targetT);
+        if (dist < bestDist) { bestDist = dist; best = p; }
+      });
+      if (best) rows.push({ label: b.label, value: best.value, color: b.color });
+    });
+    return rows;
+  }
+
+  function showTooltip(clientX, clientY, dateLabel, rows) {
+    if (!rows.length) { hideTooltip(); return; }
+    var host = ensureTooltipEl();
+    host.textContent = "";
+    host.appendChild(el("div", { class: "rate-tooltip-date" }, dateLabel));
+    rows.forEach(function (r) {
+      host.appendChild(el("div", { class: "rate-tooltip-row" }, [
+        el("span", { class: "rate-tooltip-dot", style: { background: r.color } }),
+        el("span", { class: "rate-tooltip-label" }, r.label),
+        el("span", { class: "rate-tooltip-value" }, r.value.toFixed(2) + "%")
+      ]));
+    });
+    host.style.display = "flex";
+
+    var left = clientX + 14;
+    var top = clientY + 14;
+    if (typeof window.innerWidth === "number") {
+      var w = host.offsetWidth || 160;
+      if (left + w > window.innerWidth) left = clientX - w - 14;
+    }
+    if (typeof window.innerHeight === "number") {
+      var h = host.offsetHeight || 80;
+      if (top + h > window.innerHeight) top = clientY - h - 14;
+    }
+    host.style.left = left + "px";
+    host.style.top = top + "px";
+  }
+
+  // attachTooltipHandlers(svg, getContext) — getContext()는 호출될 때마다(=마우스가 움직일 때마다)
+  // 그 시점의 {banks, seriesByBank, gran, hiddenSet, minT, maxT}를 새로 반환해야 함(줌/집계/시리즈
+  // 선택이 바뀐 뒤에도 항상 최신 상태를 보도록 — 클로저로 값을 캡처해 고정하면 안 됨).
+  function attachTooltipHandlers(svg, getContext) {
+    svg.addEventListener("mousemove", function (e) {
+      var ctx = getContext();
+      var userX = clientToUserXFor(svg, e.clientX);
+      var t = ctx.minT + (userX - CHART_M.left) / CHART_PLOT_W * (ctx.maxT - ctx.minT);
+      var rows = nearestRows(ctx.banks, ctx.seriesByBank, ctx.gran, ctx.hiddenSet, t);
+      showTooltip(e.clientX, e.clientY, formatAxisDate(new Date(t), ctx.gran), rows);
+    });
+    svg.addEventListener("mouseleave", hideTooltip);
+    // 터치 시작 시 툴팁을 숨겨 기존 팬/핀치 제스처와 충돌하지 않게 함(passive: 제스처 방해 없음).
+    svg.addEventListener("touchstart", hideTooltip, { passive: true });
   }
 
   function renderGranSeg() {
@@ -392,6 +505,94 @@
         "마우스 휠(또는 모바일 핀치)로 확대/축소, 드래그로 좌우 이동. " +
         "금융채6개월 기준금리 — 신한은행은 일별 고시값, SC제일은행은 최근 10영업일 평균(은행 공시 산출 방식)이라 두 값을 직접 비교할 때 참고하세요.")
     ]));
+  }
+
+  // isSameSource(idA, idB) — 두 시리즈가 동일 데이터를 참조하는지(예: COFIX 단일소스화로
+  // 신한/제일 라벨이 같은 배열을 가리키는 경우, plan §2.2) 판정. 참조가 같으면 즉시 true,
+  // 아니면 전 구간 값을 비교(생성 스크립트가 참조 대신 값을 복제했을 가능성 대비).
+  function isSameSource(idA, idB) {
+    if (idA === idB) return true;
+    var a = JF.ratesData.series[idA], b = JF.ratesData.series[idB];
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length || !a.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+    }
+    return true;
+  }
+
+  function renderDiffGranSeg() {
+    var opts = [["month", "월"], ["week", "주"], ["day", "일"]];
+    return el("div", { class: "seg-group" }, opts.map(function (o) {
+      return el("button", {
+        type: "button",
+        class: "btn btn-sm seg-btn" + (diffGranularity === o[0] ? " is-active" : ""),
+        onClick: function () { diffGranularity = o[0]; renderDiffSection(); }
+      }, o[1]);
+    }));
+  }
+
+  // renderDiffSection: "금리 차이 비교" — 드롭다운 2개로 고른 (A - B) 시계열 하나를 그린다.
+  // 줌/팬 없음(요구사항에 명시 없음, 과설계 방지) — 항상 유효 구간 전체를 고정 표시.
+  // 메인 차트와 같은 computeChartNodes를 재사용하되, currentSvgNode(메인 차트 전용 줌/팬 상태)를
+  // 건드리지 않도록 attachInteraction이 아닌 attachTooltipHandlers만 직접 부착한다.
+  function renderDiffSection() {
+    var host = document.getElementById("rates-diff");
+    if (!host) return;
+    var banks = JF.ratesData.banks;
+    if (!banks.length) return;
+
+    if (diffIdA == null || !banks.some(function (b) { return b.id === diffIdA; })) diffIdA = banks[0].id;
+    if (diffIdB == null || !banks.some(function (b) { return b.id === diffIdB; })) {
+      var other = banks.filter(function (b) { return b.bankLabel !== banks[0].bankLabel; })[0];
+      diffIdB = (other || banks[1] || banks[0]).id;
+    }
+
+    var bankA = banks.filter(function (b) { return b.id === diffIdA; })[0];
+    var bankB = banks.filter(function (b) { return b.id === diffIdB; })[0];
+    var diffArr = JF.rates.diffSeries(JF.ratesData.series[diffIdA] || [], JF.ratesData.series[diffIdB] || []);
+    var validPoints = diffArr.filter(function (r) { return r[1] != null; });
+
+    host.textContent = "";
+
+    var selectA = el("select", { onChange: function (e) { diffIdA = e.target.value; renderDiffSection(); } },
+      banks.map(function (b) { return el("option", { value: b.id, selected: b.id === diffIdA }, b.label); }));
+    var selectB = el("select", { onChange: function (e) { diffIdB = e.target.value; renderDiffSection(); } },
+      banks.map(function (b) { return el("option", { value: b.id, selected: b.id === diffIdB }, b.label); }));
+
+    var bodyNodes = [];
+    if (!validPoints.length) {
+      bodyNodes.push(el("p", { class: "muted rate-caption" }, "선택한 두 시리즈가 겹치는 날짜가 없어 차이를 계산할 수 없습니다."));
+    } else {
+      var minT = keyToTime(validPoints[0][0], "day");
+      var maxT = keyToTime(validPoints[validPoints.length - 1][0], "day");
+      var diffLabel = (bankA ? bankA.label : diffIdA) + " − " + (bankB ? bankB.label : diffIdB);
+      var diffBanks = [{ id: "diff", label: diffLabel, color: "var(--jf-info)" }];
+      var nodes = computeChartNodes(diffBanks, { diff: diffArr }, diffGranularity, {}, minT, maxT);
+      var svg = svgEl("svg", {
+        viewBox: "0 0 " + CHART_W + " " + CHART_H, class: "rate-chart-svg", preserveAspectRatio: "none"
+      }, nodes);
+      attachTooltipHandlers(svg, function () {
+        return { banks: diffBanks, seriesByBank: { diff: diffArr }, gran: diffGranularity, hiddenSet: {}, minT: minT, maxT: maxT };
+      });
+      bodyNodes.push(el("div", { class: "rate-chart-wrap" }, svg));
+      if (isSameSource(diffIdA, diffIdB)) {
+        bodyNodes.push(el("p", { class: "muted rate-caption" },
+          "두 시리즈는 동일 소스(같은 공시값)라 차이가 항상 0에 가깝습니다."));
+      }
+    }
+
+    host.appendChild(el("div", { class: "card" }, [
+      el("div", { class: "card-header" }, [
+        el("h2", { class: "card-title" }, "금리 차이 비교"),
+        renderDiffGranSeg()
+      ]),
+      el("div", { class: "rate-diff-select-row" }, [
+        el("label", {}, "A"), selectA,
+        el("span", {}, "−"),
+        el("label", {}, "B"), selectB
+      ])
+    ].concat(bodyNodes)));
   }
 
   function renderTableSection() {
@@ -457,7 +658,18 @@
 
   function render() {
     renderChartSection();
+    renderDiffSection();
     renderTableSection();
+  }
+
+  // refreshData(newRatesData) — rates.html 전용 원격 로더(js/rates-remote.js)가 fetch 성공 시
+  // 호출하는 훅. JF.ratesData를 교체하고 줌 전체범위(fullMinT/fullMaxT)를 재계산한 뒤 재렌더.
+  // 다른 페이지의 no-fetch 정책(js/ui.js loadRefRate)은 이 훅과 무관 — rates.html에서만 쓰인다.
+  function refreshData(newRatesData) {
+    JF.ratesData = newRatesData;
+    fullMinT = null; fullMaxT = null; viewMinT = null; viewMaxT = null;
+    ensureFullRange();
+    render();
   }
 
   ensureFullRange();
@@ -466,6 +678,8 @@
   window.addEventListener("touchmove", onWindowTouchMove, { passive: false });
   window.addEventListener("touchend", onWindowTouchEnd);
   window.addEventListener("touchcancel", onWindowTouchCancel);
+
+  JF.ratesUi = { refreshData: refreshData };
 
   JF.ui.renderNav("rates.html");
   render();

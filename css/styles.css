@@ -82,6 +82,18 @@
   --jf-info: #0d84ac;
   --jf-info-soft: #e4f5fb;
 
+  /* 금리 탭 9-시리즈 차트 색상 — dataviz 스킬 validate_palette.js --ordinal 통과.
+     복합 인코딩: hue=은행(2개 카테고리), lightness=금리종류(은행별 순서 램프, 진함->연함). */
+  --jf-rate-shinhan-1: #0c388d;
+  --jf-rate-shinhan-2: #114ec5;
+  --jf-rate-shinhan-3: #276aec;
+  --jf-rate-shinhan-4: #5f91f1;
+  --jf-rate-scfirst-1: #0a3e21;
+  --jf-rate-scfirst-2: #0f6134;
+  --jf-rate-scfirst-3: #158448;
+  --jf-rate-scfirst-4: #1aa75b;
+  --jf-rate-scfirst-5: #20cb6e;
+
   --jf-shadow: 0 1px 2px rgba(20, 30, 50, 0.06), 0 4px 14px rgba(20, 30, 50, 0.06);
   --jf-radius: 12px;
   --jf-radius-sm: 8px;
@@ -114,6 +126,16 @@
     --jf-warning-soft: #3a2c10;
     --jf-info: #47c1ef;
     --jf-info-soft: #102e39;
+
+    --jf-rate-shinhan-1: #0441c8;
+    --jf-rate-shinhan-2: #0f58fb;
+    --jf-rate-shinhan-3: #4b82fc;
+    --jf-rate-shinhan-4: #87abfd;
+    --jf-rate-scfirst-1: #1c683e;
+    --jf-rate-scfirst-2: #2ba160;
+    --jf-rate-scfirst-3: #46cd83;
+    --jf-rate-scfirst-4: #86dfae;
+    --jf-rate-scfirst-5: #bfeed4;
 
     --jf-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.35);
   }
@@ -1165,6 +1187,33 @@ table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-
 .rate-legend-chip.is-hidden .rate-legend-dot { opacity: 0.4; }
 
 .rate-caption { margin-top: 0.8rem; margin-bottom: 0; font-size: 0.8rem; }
+
+.rate-diff-select-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.rate-diff-select-row label { color: var(--jf-text-muted); font-size: 0.85rem; }
+
+/* 호버 크로스헤어 툴팁 — .re-popover와 동일한 position:fixed + body 마운트 패턴
+   (스크롤 컨테이너 클리핑 회피, jinfinance-app-shape 메모리의 부동산 예산 팝오버 참고). */
+.rate-tooltip {
+  position: fixed;
+  z-index: 1100;
+  display: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 140px;
+  max-width: 260px;
+  padding: 0.6rem 0.75rem;
+  background: var(--jf-bg-elevated);
+  border: 1px solid var(--jf-border);
+  border-radius: var(--jf-radius-sm);
+  box-shadow: var(--jf-shadow);
+  pointer-events: none;
+  font-size: 0.8rem;
+}
+.rate-tooltip-date { font-weight: 700; color: var(--jf-text); margin-bottom: 0.15rem; }
+.rate-tooltip-row { display: flex; align-items: center; gap: 0.4rem; }
+.rate-tooltip-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.rate-tooltip-label { color: var(--jf-text-muted); flex: 1 1 auto; }
+.rate-tooltip-value { font-variant-numeric: tabular-nums; font-weight: 600; }
 
 /* ---------------------------------------------------------------------- */
 /* 부동산 예산 — 스냅샷 가로 트랙 + hover 편집 아이콘 + 셀 편집 팝오버      */
