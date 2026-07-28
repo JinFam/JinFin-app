@@ -10,6 +10,8 @@
   var compareIds = [];       // 비교 체크된 케이스 id(로컬 전용, 동기화 안 함, 최대 3개)
   var calcCollapsed = true;    // "대출 계산" 펼치기/접기(기본 접힘)
   var compareCollapsed = true; // "대출 비교" 펼치기/접기(기본 접힘)
+  var payoffCompareCollapsed = true; // "시점별 총비용 비교" 펼치기/접기(기본 접힘)
+  var payoffN = 6;                    // 선택된 N(개월), 기본값 6
 
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 8); }
   function save() {
@@ -18,14 +20,10 @@
     if (JF.ui && typeof JF.ui.refreshRepPayment === "function") JF.ui.refreshRepPayment();
   }
 
-  // 케이스 목록/헤더 표기용 이율 문자열(연동이면 실제 연동 금리, 미확인 시 수동 폴백).
+  // 케이스 목록/헤더 표기용 이율 문자열 — resolveRate()에 위임(단일 소스).
   function rateDisplay(c) {
-    if (c.linkToFinalRate) {
-      var f = (JF.ui && typeof JF.ui.getFinalRate === "function") ? JF.ui.getFinalRate() : null;
-      if (f != null) return "연동 " + Number(f).toFixed(2) + "%";
-      return "연동(수동 " + (Number(c.annualRate) || 0).toFixed(2) + "%)";
-    }
-    return (c.annualRate != null ? Number(c.annualRate).toFixed(2) + "%" : "-");
+    var r = resolveRate(c);
+    return Number(r.value).toFixed(2) + "%" + (c.linkToFinalRate ? " (" + r.source + ")" : "");
   }
 
   // 대표 대출 지정/해제(기기 로컬). 지정 시 상단 헤더에 예상 원리금 표기.
@@ -39,15 +37,31 @@
   function fromMan(m) { return JF.format.fromMan(m); }
   function won(n) { return JF.format.formatWon(n) + "원"; }
 
-  // ---- rate 사전해석(연동이면 최종금리, 아니면 입력값) — 엔진은 이 결과만 받음 --------
+  // seriesId → JF.ratesData.banks의 표시용 label(못 찾으면 seriesId 원문, 없으면 "기준금리").
+  function seriesLabel(seriesId) {
+    if (!seriesId) return "기준금리";
+    var banks = (JF.ratesData && JF.ratesData.banks) || [];
+    var found = banks.filter(function (b) { return b.id === seriesId; })[0];
+    return found ? found.label : seriesId;
+  }
+
+  // ---- rate 사전해석(기준금리+가산금리, js/ui.js resolveCaseRate와 동일 규칙의 독립 구현) ----
   // { value: number, source: string(표시용 라벨) }
   function resolveRate(loanCase) {
-    if (loanCase.linkToFinalRate) {
-      var live = (JF.ui && typeof JF.ui.getFinalRate === "function") ? JF.ui.getFinalRate() : null;
-      if (live != null) return { value: live, source: "연동(최종금리)" };
-      return { value: Number(loanCase.annualRate) || 0, source: "연동(최종금리 미확인 — 수동 입력값 사용)" };
+    var c = loanCase || {};
+    if (c.linkToFinalRate) {
+      var base = null;
+      if (c.baseRateSeriesId && JF.ratesData && JF.ratesData.series && JF.ratesData.series[c.baseRateSeriesId] &&
+          JF.rates && typeof JF.rates.latestValue === "function") {
+        base = JF.rates.latestValue(JF.ratesData.series[c.baseRateSeriesId]);
+      }
+      if (base != null) {
+        var label = seriesLabel(c.baseRateSeriesId);
+        return { value: base + (Number(c.spreadRate) || 0), source: "연동(" + label + ")" };
+      }
+      return { value: Number(c.annualRate) || 0, source: "연동(기준금리 미확인 — 수동 폴백값 사용)" };
     }
-    return { value: Number(loanCase.annualRate) || 0, source: "수동입력" };
+    return { value: (Number(c.baseRateManual) || 0) + (Number(c.spreadRate) || 0), source: "수동입력" };
   }
 
   function computeForCase(loanCase) {
@@ -62,7 +76,12 @@
       prepayments: loanCase.prepayments || [],
       rateChanges: loanCase.rateChanges || []
     };
-    return { result: JF.loan.computeSchedule(resolved), rateInfo: rateInfo };
+    var schedule = JF.loan.computeSchedule(resolved);
+    var prepayFee = loanCase.prepayFee || JF.schema.emptyLoanCase().prepayFee;
+    var rowsWithFee = (JF.loan.computePrepayFeeSchedule && resolved.startDate && schedule.rows.length)
+      ? JF.loan.computePrepayFeeSchedule({ amount: resolved.amount, startDate: resolved.startDate, prepayFee: prepayFee }, schedule.rows)
+      : schedule.rows;
+    return { result: { rows: rowsWithFee, summary: schedule.summary }, rateInfo: rateInfo };
   }
 
   function findCase(id) {
@@ -98,7 +117,7 @@
     }
     var wasEmpty = compareIds.length === 0;
     compareIds.push(id);
-    if (wasEmpty) compareCollapsed = false; // 첫 케이스 선택 시 자동으로 펼침
+    if (wasEmpty) { compareCollapsed = false; payoffCompareCollapsed = false; } // 첫 케이스 선택 시 두 비교 섹션 모두 자동으로 펼침
     render();
   }
 
@@ -111,6 +130,7 @@
     if (typeof c.extraPayment.toInstallment !== "number") c.extraPayment.toInstallment = 0;
     if (!Array.isArray(c.prepayments)) c.prepayments = [];
     if (!Array.isArray(c.rateChanges)) c.rateChanges = [];
+    if (!c.prepayFee || typeof c.prepayFee !== "object") c.prepayFee = JF.schema.emptyLoanCase().prepayFee;
 
     var body = el("div", { class: "card-body stack" }, []);
 
@@ -131,25 +151,53 @@
       el("label", null, "대출 실행일:"), startInput
     ]));
 
-    var linkCb = el("input", { type: "checkbox", checked: !!c.linkToFinalRate, onChange: function () { c.linkToFinalRate = linkCb.checked; syncRateField(); } });
-    // 연동 시 입력을 잠그되 c.annualRate(수동 폴백값)는 보존한다 → onInput은 미연동일 때만 기록.
-    var rateInput = el("input", { type: "number", value: c.annualRate, min: "0", step: "0.01", onInput: function () { if (!c.linkToFinalRate) c.annualRate = parseFloat(rateInput.value) || 0; } });
-    function syncRateField() {
-      if (c.linkToFinalRate) {
-        var f = (JF.ui && typeof JF.ui.getFinalRate === "function") ? JF.ui.getFinalRate() : null;
-        rateInput.disabled = true;
-        rateInput.value = (f != null ? Number(f).toFixed(2) : (Number(c.annualRate) || 0));
+    var linkCb = el("input", { type: "checkbox", checked: !!c.linkToFinalRate, onChange: function () { c.linkToFinalRate = linkCb.checked; syncRateFields(); } });
+
+    var seriesSelect = el("select", { onChange: function () { c.baseRateSeriesId = seriesSelect.value || null; syncRateFields(); } },
+      [el("option", { value: "", selected: !c.baseRateSeriesId }, "(선택)")].concat(
+        ((JF.ratesData && JF.ratesData.banks) || []).map(function (b) {
+          return el("option", { value: b.id, selected: c.baseRateSeriesId === b.id }, b.label);
+        })
+      ));
+    var baseReadout = el("span", { class: "muted" }, "—");
+    var baseManualInput = el("input", { type: "number", value: c.baseRateManual, min: "0", step: "0.01",
+      onInput: function () { c.baseRateManual = parseFloat(baseManualInput.value) || 0; refreshPreview(); } });
+    var spreadInput = el("input", { type: "number", value: c.spreadRate, step: "0.01",
+      onInput: function () { c.spreadRate = parseFloat(spreadInput.value) || 0; refreshPreview(); } });
+    var previewSpan = el("span", { class: "muted" }, "");
+
+    function refreshBaseReadout() {
+      var series = (c.baseRateSeriesId && JF.ratesData && JF.ratesData.series) ? JF.ratesData.series[c.baseRateSeriesId] : null;
+      if (series && series.length) {
+        var last = series[series.length - 1];
+        baseReadout.textContent = Number(last[1]).toFixed(2) + "% (기준일 " + last[0] + ")";
       } else {
-        rateInput.disabled = false;
-        rateInput.value = c.annualRate;
+        baseReadout.textContent = "—";
       }
     }
-    syncRateField();
+    function refreshPreview() {
+      previewSpan.textContent = "최종금리 " + Number(resolveRate(c).value).toFixed(2) + "%";
+    }
+    function syncRateFields() {
+      seriesSelect.disabled = !c.linkToFinalRate;
+      baseManualInput.disabled = !!c.linkToFinalRate;
+      refreshBaseReadout();
+      refreshPreview();
+    }
+    syncRateFields();
+
     body.appendChild(el("div", { class: "field-row" }, [
-      linkCb, el("span", { class: "muted" }, "최종금리 연동"),
-      el("label", null, "연이자율(%):"), rateInput
+      linkCb, el("span", { class: "muted" }, "최종금리 연동")
     ]));
-    body.appendChild(el("div", { class: "muted" }, "연동 체크 시 상단 최종금리(기준금리+가산)로 계산되며 연이자율 입력이 잠깁니다. 최종금리를 못 불러온 환경(file:// 등)에서는 아래 수동 입력값을 임시로 사용합니다."));
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("label", null, "기준금리 시계열:"), seriesSelect, baseReadout
+    ]));
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("label", null, "기준금리 수동입력(%):"), baseManualInput,
+      el("label", null, "가산금리(%):"), spreadInput
+    ]));
+    body.appendChild(el("div", { class: "field-row" }, [previewSpan]));
+    body.appendChild(el("div", { class: "muted" }, "연동 체크 시 선택한 기준금리 시계열의 최신값 + 가산금리로 계산됩니다. 기준금리를 직접 입력하려면 연동을 해제하세요. 가산금리는 연동 여부와 무관하게 항상 직접 입력합니다."));
 
     body.appendChild(el("div", { class: "subhead" }, "월 상환금액(추가 원금)"));
     var extraAmountInput = el("input", { type: "number", value: man(c.extraPayment.amount), min: "0", step: "0.1", onInput: function () { c.extraPayment.amount = fromMan(extraAmountInput.value); } });
@@ -204,8 +252,43 @@
     drawRateChanges();
     body.appendChild(rateHost);
 
+    // 중도상환수수료
+    body.appendChild(el("div", { class: "subhead" }, "중도상환수수료"));
+    var feeRateInput = el("input", { type: "number", value: c.prepayFee.ratePercent, min: "0", step: "0.01",
+      onInput: function () { c.prepayFee.ratePercent = parseFloat(feeRateInput.value) || 0; } });
+    var feeWindowInput = el("input", { type: "number", value: c.prepayFee.feeWindowMonths, min: "0", step: "1",
+      onInput: function () { c.prepayFee.feeWindowMonths = parseInt(feeWindowInput.value, 10) || 0; } });
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("label", null, "수수료율(%):"), feeRateInput,
+      el("label", null, "적용기간(개월, 0=무제한):"), feeWindowInput
+    ]));
+
+    var feeDayProrationCb = el("input", { type: "checkbox", checked: !!c.prepayFee.dayProration,
+      onChange: function () { c.prepayFee.dayProration = feeDayProrationCb.checked; } });
+    body.appendChild(el("div", { class: "field-row" }, [
+      feeDayProrationCb, el("span", { class: "muted" }, "일수비례 적용")
+    ]));
+
+    var feeExemptionPercentInput = el("input", { type: "number", value: c.prepayFee.exemptionPercent, min: "0", step: "0.01",
+      onInput: function () { c.prepayFee.exemptionPercent = parseFloat(feeExemptionPercentInput.value) || 0; } });
+    var feeExemptionBasisSelect = el("select", { onChange: function () { c.prepayFee.exemptionBasis = feeExemptionBasisSelect.value; } }, [
+      el("option", { value: "principal", selected: c.prepayFee.exemptionBasis === "principal" }, "최초 원금"),
+      el("option", { value: "balance", selected: c.prepayFee.exemptionBasis === "balance" }, "해당 시점 잔액")
+    ]);
+    var feeExemptionPeriodSelect = el("select", { onChange: function () { c.prepayFee.exemptionPeriod = feeExemptionPeriodSelect.value; } }, [
+      el("option", { value: "annual", selected: c.prepayFee.exemptionPeriod === "annual" }, "매년(대출연도)"),
+      el("option", { value: "once", selected: c.prepayFee.exemptionPeriod === "once" }, "전체 기간 1회")
+    ]);
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("label", null, "면제율(%):"), feeExemptionPercentInput,
+      el("label", null, "면제 기준:"), feeExemptionBasisSelect,
+      el("label", null, "면제 주기:"), feeExemptionPeriodSelect
+    ]));
+    body.appendChild(el("div", { class: "muted" }, "전액상환 시 수수료 = (잔액 − 면제한도) × 수수료율 × 잔존일수비례. 적용기간이 지나면 수수료가 0이 됩니다."));
+
     body.appendChild(el("div", { class: "card-footer" }, [
       el("button", { class: "btn btn-primary", onClick: function () {
+        c.annualRate = resolveRate(c).value; // annualRate를 최신 스냅샷으로 갱신(구버전 코드/동기화 상대방 호환용)
         if (isNew) {
           state.loans.push(c);
         } else {
@@ -353,7 +436,8 @@
       el("th", { class: "num" }, "상환원금"),
       el("th", { class: "num" }, "이자액"),
       el("th", { class: "num loan-hl-pay" }, "납부액"),
-      el("th", { class: "num loan-hl-bal" }, "대출잔액")
+      el("th", { class: "num loan-hl-bal" }, "대출잔액"),
+      el("th", { class: "num" }, "중도상환수수료(전액상환기준)")
     ]));
     var tbody = el("tbody", null, rows.map(function (row) {
       var hasPrepay = row.prepay > 0;
@@ -370,7 +454,8 @@
         principalCell,
         el("td", { class: "num" }, won(row.interest)),
         el("td", { class: "num loan-hl-pay" }, won(row.payment)),
-        el("td", { class: "num loan-hl-bal" }, won(row.balance))
+        el("td", { class: "num loan-hl-bal" }, won(row.balance)),
+        el("td", { class: "num" }, won(row.prepayFeeFull != null ? row.prepayFeeFull : 0))
       ]);
     }));
 
@@ -444,7 +529,80 @@
     ]));
   }
 
-  function render() { renderCases(); renderCalc(); renderCompare(); }
+  // ---- 시점별 총비용 비교 (누적이자+중도상환수수료) --------------------
+  var PAYOFF_N_PRESETS = [1, 3, 6, 9, 12, 18, 24, 36];
+
+  function renderPayoffCompare() {
+    var host = document.getElementById("loan-payoff-compare");
+    host.innerHTML = "";
+
+    var header = el("div", { class: "card-header" }, [
+      el("span", { class: "card-title" }, "시점별 총비용 비교 (누적이자+중도상환수수료)"),
+      collapseToggle(payoffCompareCollapsed, function () { payoffCompareCollapsed = !payoffCompareCollapsed; render(); })
+    ]);
+
+    if (payoffCompareCollapsed) {
+      var hint = compareIds.length
+        ? "접힘 · [펼치기]로 시점별 총비용 비교를 확인하세요(" + compareIds.length + "개 선택됨)."
+        : "접힘 · 케이스 목록에서 비교 체크박스를 선택하면 펼쳐집니다(최대 3개, 대출 비교 섹션과 동일 선택).";
+      host.appendChild(el("div", { class: "card" }, [header, el("div", { class: "card-body" }, el("p", { class: "muted" }, hint))]));
+      return;
+    }
+
+    if (!compareIds.length) {
+      host.appendChild(el("div", { class: "card" }, [header,
+        el("div", { class: "card-body" }, el("p", { class: "muted" }, "케이스 목록에서 비교 체크박스를 선택하세요(최대 3개, 대출 비교 섹션과 동일 선택)."))]));
+      return;
+    }
+
+    var presetSeg = el("div", { class: "seg-group" }, PAYOFF_N_PRESETS.map(function (n) {
+      return el("button", {
+        type: "button",
+        class: "btn btn-sm seg-btn" + (payoffN === n ? " is-active" : ""),
+        onClick: function () { payoffN = n; render(); }
+      }, n + "개월");
+    }));
+    // onChange(blur/엔터, onInput 아님): render()가 이 입력창 자체를 재생성하므로, 매 키 입력마다
+    // 재렌더하면 포커스가 끊겨 두 자리 이상 입력이 불가능해짐(1글자 후 포커스 소실).
+    var customInput = el("input", {
+      type: "number", min: "1", step: "1", value: payoffN, style: { width: "5em" },
+      onChange: function () { var v = parseInt(customInput.value, 10); if (v > 0) { payoffN = v; render(); } }
+    });
+    var controls = el("div", { class: "field-row" }, [presetSeg, el("label", null, "직접입력(개월):"), customInput]);
+
+    var cases = compareIds.map(findCase).filter(Boolean);
+    var computed = cases.map(function (c) {
+      var calc = computeForCase(c);
+      var cost = JF.loan.cumulativeCostAt(calc.result.rows, payoffN);
+      return { loanCase: c, summary: calc.result.summary, cost: cost };
+    });
+    var minTotal = computed.reduce(function (m, c) { return Math.min(m, c.cost.total); }, Infinity);
+
+    var thead = el("thead", null, el("tr", null, [
+      el("th", null, "케이스"),
+      el("th", { class: "num" }, "월원리금"),
+      el("th", { class: "num" }, "누적이자(" + payoffN + "개월)"),
+      el("th", { class: "num" }, "중도상환수수료(" + payoffN + "회차)"),
+      el("th", { class: "num" }, "합계")
+    ]));
+    var tbody = el("tbody", null, computed.map(function (c) {
+      var isBest = c.cost.total === minTotal;
+      return el("tr", { class: isBest ? "loan-payoff-best-row" : null }, [
+        el("td", null, c.loanCase.name || "(이름없음)"),
+        el("td", { class: "num" }, won(c.summary.firstMonthlyPayment)),
+        el("td", { class: "num" }, won(c.cost.cumulativeInterest)),
+        el("td", { class: "num" }, won(c.cost.prepayFee)),
+        el("td", { class: "num" + (isBest ? " loan-payoff-best-cell" : "") }, won(c.cost.total))
+      ]);
+    }));
+
+    host.appendChild(el("div", { class: "card" }, [
+      header,
+      el("div", { class: "card-body stack" }, [controls, el("div", { class: "table-wrap" }, el("table", { class: "table table-dense" }, [thead, tbody]))])
+    ]));
+  }
+
+  function render() { renderCases(); renderCalc(); renderCompare(); renderPayoffCompare(); }
 
   function boot() {
     JF.ui.renderNav("loan.html");

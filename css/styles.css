@@ -1098,6 +1098,14 @@ table.table td.loan-cmp-c2-pay, table.table th.loan-cmp-c2-pay { background: rgb
 table.table td.loan-prepay-cell { white-space: nowrap; }
 table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-warning); }
 
+/* 시점별 총비용 비교: 합계 최솟값(가장 유리한 케이스) 강조 */
+table.table tr.loan-payoff-best-row td { background: rgba(23, 146, 79, 0.07); }
+table.table td.loan-payoff-best-cell {
+  background: rgba(23, 146, 79, 0.20);
+  color: var(--jf-success);
+  font-weight: 700;
+}
+
 @media (prefers-color-scheme: dark) {
   table.table td.loan-hl-pay, table.table th.loan-hl-pay { background: rgba(91, 141, 252, 0.28); color: var(--jf-primary); }
   table.table td.loan-hl-bal, table.table th.loan-hl-bal { background: rgba(91, 141, 252, 0.12); }
@@ -1108,6 +1116,9 @@ table.table tr.loan-prepay-row td:first-child { border-left: 3px solid var(--jf-
   table.table td.loan-cmp-c1-pay, table.table th.loan-cmp-c1-pay { background: rgba(91, 141, 252, 0.30); }
   table.table td.loan-cmp-c2-bal, table.table th.loan-cmp-c2-bal { background: rgba(62, 203, 125, 0.14); }
   table.table td.loan-cmp-c2-pay, table.table th.loan-cmp-c2-pay { background: rgba(62, 203, 125, 0.30); }
+
+  table.table tr.loan-payoff-best-row td { background: rgba(62, 203, 125, 0.10); }
+  table.table td.loan-payoff-best-cell { background: rgba(62, 203, 125, 0.26); }
 }
 
 /* ---------------------------------------------------------------------- */

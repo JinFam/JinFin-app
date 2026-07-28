@@ -146,6 +146,13 @@ var JF = (typeof window !== 'undefined')
     return rows;
   }
 
+  // latestValue(series) — series: [[date, rate], ...] 오름차순. 마지막 행의 rate를 반환.
+  // series가 null/undefined/배열이 아니거나 빈 배열이면 null.
+  function latestValue(series) {
+    if (!Array.isArray(series) || series.length === 0) return null;
+    return series[series.length - 1][1];
+  }
+
   JF.rates = {
     monthKey: monthKey,
     mondayOf: mondayOf,
@@ -154,7 +161,8 @@ var JF = (typeof window !== 'undefined')
     listMonths: listMonths,
     monthRows: monthRows,
     diffSeries: diffSeries,
-    parseBokBaseRateTable: parseBokBaseRateTable
+    parseBokBaseRateTable: parseBokBaseRateTable,
+    latestValue: latestValue
   };
 })(JF);
 

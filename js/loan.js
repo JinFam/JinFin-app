@@ -131,7 +131,7 @@ var JF = (typeof window !== 'undefined')
         var gFinal = gPrincipal >= B; // 원금 상환이 잔액을 모두 갚으면 종료
         B = B - gPrincipal;
         totalInterest += interest;
-        rows.push({ n: k, date: date, principal: gPrincipal, interest: interest, payment: interest + gPrincipal, balance: B, prepay: gLump });
+        rows.push({ n: k, date: date, principal: gPrincipal, interest: interest, payment: interest + gPrincipal, balance: B, prepay: gLump, extraApplied: gExtra });
         if (gFinal) break;
         continue;
       }
@@ -157,7 +157,7 @@ var JF = (typeof window !== 'undefined')
 
       B = B - principal;
       totalInterest += interest;
-      rows.push({ n: k, date: date, principal: principal, interest: interest, payment: payment, balance: B, prepay: lump });
+      rows.push({ n: k, date: date, principal: principal, interest: interest, payment: payment, balance: B, prepay: lump, extraApplied: extraAmt });
 
       if (lump > 0 && !final) {
         A_int = Math.round(annuity(B, r, N - k));
@@ -180,9 +180,120 @@ var JF = (typeof window !== 'undefined')
     return { rows: rows, summary: summary };
   }
 
+  // daysBetween(dateA, dateB) — "YYYY-MM-DD" 두 날짜의 캘린더 일수 차(dateB - dateA).
+  // UTC 자정 기준 차이라 로컬 타임존/DST 영향 없음(addMonths는 문자열 클램프, 이건 순수 일수).
+  function daysBetween(dateA, dateB) {
+    var a = String(dateA).split('-');
+    var b = String(dateB).split('-');
+    var ua = Date.UTC(parseInt(a[0], 10), parseInt(a[1], 10) - 1, parseInt(a[2], 10));
+    var ub = Date.UTC(parseInt(b[0], 10), parseInt(b[1], 10) - 1, parseInt(b[2], 10));
+    return Math.round((ub - ua) / 86400000);
+  }
+
+  // computePrepayFeeSchedule(resolvedCase, rows) — 각 회차 시점에 잔액 전부를 갚으면 발생할
+  // 중도상환수수료(prepayFeeFull)를 회차별로 계산해 rows의 얕은 복제본 배열로 반환(입력 rows 불변).
+  // rows는 computeSchedule(resolvedCase).rows(각 행에 n,date,principal,interest,payment,balance,prepay).
+  function computePrepayFeeSchedule(resolvedCase, rows) {
+    resolvedCase = resolvedCase || {};
+    rows = Array.isArray(rows) ? rows : [];
+
+    var fee = resolvedCase.prepayFee || {};
+    var ratePercent = Number(fee.ratePercent) || 0;
+    var feeWindowMonths = Math.floor(Number(fee.feeWindowMonths) || 0);
+    var dayProration = !!fee.dayProration;
+    var exemptionPercent = Number(fee.exemptionPercent) || 0;
+    var exemptionBasis = (fee.exemptionBasis === 'balance') ? 'balance' : 'principal';
+    var exemptionPeriod = (fee.exemptionPeriod === 'once') ? 'once' : 'annual';
+
+    var amount = Number(resolvedCase.amount) || 0;
+    var startDate = resolvedCase.startDate || null;
+
+    function cloneRow(row) {
+      var out = {};
+      for (var key in row) { if (Object.prototype.hasOwnProperty.call(row, key)) out[key] = row[key]; }
+      return out;
+    }
+
+    // ratePercent===0(예: 카카오뱅크) → 전 회차 0. 불필요한 계산/반올림 아티팩트 방지.
+    if (ratePercent === 0) {
+      return rows.map(function (row) {
+        var out = cloneRow(row);
+        out.prepayFeeFull = 0;
+        return out;
+      });
+    }
+
+    // 일수 윈도(캡): feeWindowMonths>0일 때만 유효. 0=무제한 → 항상 정액(proration=1).
+    var windowEndDate = (feeWindowMonths > 0 && startDate) ? addMonths(startDate, feeWindowMonths) : null;
+    var windowTotalDays = windowEndDate ? daysBetween(startDate, windowEndDate) : 0;
+
+    function periodIndex(n) {
+      return exemptionPeriod === 'annual' ? Math.floor((n - 1) / 12) : 0;
+    }
+
+    return rows.map(function (row, i) {
+      var out = cloneRow(row);
+
+      var period = periodIndex(row.n);
+
+      // 같은 면제기간 내, 이 회차 '이전' 행들의 실제 중도상환액(목돈 prepay + 추가원금
+      // extraApplied) 누적 — plan §4.2: "실제 prepayments[]+extraPayment 누적 중도상환액".
+      var used = 0;
+      for (var j = 0; j < i; j++) {
+        if (periodIndex(rows[j].n) === period) used += (Number(rows[j].prepay) || 0) + (Number(rows[j].extraApplied) || 0);
+      }
+
+      var exemptionCap = (exemptionBasis === 'balance' ? (Number(row.balance) || 0) : amount) * exemptionPercent / 100;
+      var availableExemption = Math.max(0, exemptionCap - used);
+      var feeBase = Math.max(0, (Number(row.balance) || 0) - availableExemption);
+
+      var proration = 1;
+      if (windowEndDate) {
+        var elapsedDays = daysBetween(startDate, row.date);
+        if (elapsedDays >= windowTotalDays) {
+          out.prepayFeeFull = 0;
+          return out;
+        }
+        var remainingDays = daysBetween(row.date, windowEndDate);
+        proration = dayProration ? (remainingDays / windowTotalDays) : 1;
+      }
+
+      out.prepayFeeFull = Math.round(feeBase * ratePercent / 100 * proration);
+      return out;
+    });
+  }
+
+  // cumulativeCostAt(rows, n) — rows=computePrepayFeeSchedule 결과, n=회차.
+  // { cumulativeInterest(1..n 이자합), prepayFee(n회차 전액상환 수수료), total }.
+  function cumulativeCostAt(rows, n) {
+    rows = Array.isArray(rows) ? rows : [];
+    n = Math.floor(Number(n) || 0);
+
+    var cumulativeInterest = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].n <= n) cumulativeInterest += Number(rows[i].interest) || 0;
+    }
+
+    var prepayFee = 0;
+    if (rows.length > 0) {
+      var target = null;
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k].n === n) { target = rows[k]; break; }
+      }
+      // n이 배열 길이를 넘어서면(조기종료로 이미 완납) 마지막 행 기준으로 해석.
+      if (target === null && n >= rows.length) target = rows[rows.length - 1];
+      if (target !== null) prepayFee = Number(target.prepayFeeFull) || 0;
+    }
+
+    return { cumulativeInterest: cumulativeInterest, prepayFee: prepayFee, total: cumulativeInterest + prepayFee };
+  }
+
   JF.loan = {
     computeSchedule: computeSchedule,
-    addMonths: addMonths
+    addMonths: addMonths,
+    daysBetween: daysBetween,
+    computePrepayFeeSchedule: computePrepayFeeSchedule,
+    cumulativeCostAt: cumulativeCostAt
   };
 
 })(JF);

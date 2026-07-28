@@ -115,13 +115,32 @@ window.JF = window.JF || {};
     renderRepPayment();
   }
 
-  // 케이스 이율 해석: 연동이면 최종금리(없으면 수동값), 아니면 수동값. (app-loan.resolveRate와 동일 규칙)
-  function resolveCaseRate(c) {
-    if (c && c.linkToFinalRate) {
-      var f = getFinalRate();
-      if (f != null) return f;
+  // resolveBaseRate(c): 연동 케이스의 기준금리 실시간 값(baseRateSeriesId → JF.ratesData 최신값),
+  // 시리즈를 못 구하면(rates-data.js 미로드 페이지 등) null.
+  function resolveBaseRate(c) {
+    if (!c || !c.baseRateSeriesId || !JF.ratesData || !JF.ratesData.series ||
+        !JF.ratesData.series[c.baseRateSeriesId] || !JF.rates || typeof JF.rates.latestValue !== "function") {
+      return null;
     }
-    return (c && Number(c.annualRate)) || 0;
+    return JF.rates.latestValue(JF.ratesData.series[c.baseRateSeriesId]);
+  }
+
+  // 케이스 이율 해석: 연동이면 기준금리(resolveBaseRate)+가산(spreadRate), 기준금리를 못 구하면
+  // 마지막 저장값(annualRate)로 폴백. 비연동이면 수동 기준금리(baseRateManual)+가산(spreadRate).
+  // (app-loan.resolveRate와 동일 규칙)
+  function resolveCaseRate(c) {
+    if (!c) return 0;
+    if (c.linkToFinalRate) {
+      var base = resolveBaseRate(c);
+      if (base != null) return base + (Number(c.spreadRate) || 0);
+      return Number(c.annualRate) || 0;
+    }
+    return (Number(c.baseRateManual) || 0) + (Number(c.spreadRate) || 0);
+  }
+
+  // isCaseRateLive(c): true면 resolveCaseRate가 JF.ratesData의 실시간 값으로 계산됨(annualRate 폴백 아님).
+  function isCaseRateLive(c) {
+    return !!(c && c.linkToFinalRate && resolveBaseRate(c) != null);
   }
 
   // computeCaseSchedule(c): 대출계산기 케이스 → 회차별 상환 스케줄({rows, summary}).
@@ -168,7 +187,7 @@ window.JF = window.JF || {};
     });
     var pay = out.summary.firstMonthlyPayment;
     if (!pay) return;
-    var live = !!(c.linkToFinalRate && getFinalRate() != null);
+    var live = isCaseRateLive(c);
     var wonStr = (JF.format && JF.format.formatWon) ? JF.format.formatWon(pay) : String(pay);
     host.appendChild(el("span", { class: "jf-ref-pay-label" },
       (c.name ? c.name : "대표대출") + " 예상 원리금 "));
@@ -327,6 +346,7 @@ window.JF = window.JF || {};
     setRepresentativeLoan: setRepresentativeLoan,
     refreshRepPayment: renderRepPayment,
     computeCaseSchedule: computeCaseSchedule,
-    buildLoanSchedules: buildLoanSchedules
+    buildLoanSchedules: buildLoanSchedules,
+    isCaseRateLive: isCaseRateLive
   };
 })();

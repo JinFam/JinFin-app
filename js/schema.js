@@ -136,11 +136,22 @@ window.JF = window.JF || {};
       termMonths: 0,          // 총 개월수(거치 포함)
       annualRate: 0,          // %
       linkToFinalRate: false, // 최종금리 연동
+      spreadRate: 0,          // 가산금리(%) — 연동 여부와 무관하게 항상 사용자 편집 가능
+      baseRateSeriesId: null, // 연동 시 참조할 JF.ratesData 시리즈 id(예: "scfirst_6m")
+      baseRateManual: 0,      // 비연동 시 사용자 입력 기준금리(%)
       graceMonths: 0,         // 거치(개월) — 이자만
       startDate: null,        // "YYYY-MM-DD" 실행일(1회차=실행일+1개월)
       extraPayment: { amount: 0, fromInstallment: 0, toInstallment: 0 }, // 월 추가 원금(시작~끝 회차, 끝 0=만기까지)
       prepayments: [],        // [{id, installment, amount(원)}] 중도상환
-      rateChanges: []         // [{id, fromInstallment, annualRate(%)}] 금리변동
+      rateChanges: [],        // [{id, fromInstallment, annualRate(%)}] 금리변동
+      prepayFee: {             // 중도상환수수료 설정
+        ratePercent: 0,         // 수수료율(%)
+        feeWindowMonths: 36,    // 적용 상한(개월, 0=무제한 항상 적용)
+        dayProration: true,     // true=잔여일수 비례 감액, false=정액
+        exemptionPercent: 0,    // 면제 한도(%)
+        exemptionBasis: 'principal', // 면제 기준: 'principal'(최초 대출원금) | 'balance'(해당 시점 잔액)
+        exemptionPeriod: 'annual'    // 면제 주기: 'annual'(대출연도마다 갱신) | 'once'(전체 기간 1회)
+      }
     };
   }
 
@@ -227,6 +238,34 @@ window.JF = window.JF || {};
       var maxGrace = Math.max(0, termMonths - 1);
       var grace = Number(loanCase.graceMonths) || 0;
       loanCase.graceMonths = Math.max(0, Math.min(maxGrace, grace));
+
+      // 금리모델(기준+가산) 도입 이전 케이스 보정 — annualRate 단일값을 base+spread로 분해해
+      // 재계산 시 기존 값과 동일하게 재현되도록 함(동기화로 유입된 구버전 데이터 포함).
+      var hasRateModel = (loanCase.spreadRate !== undefined) || (loanCase.baseRateSeriesId !== undefined) || (loanCase.baseRateManual !== undefined);
+      if (!hasRateModel && loanCase.linkToFinalRate === true) {
+        loanCase.baseRateSeriesId = 'scfirst_6m';
+        loanCase.spreadRate = 1.16; // js/ui.js LOAN_SPREAD 과거 하드코딩값 보존
+      } else if (!hasRateModel) {
+        loanCase.baseRateManual = Number(loanCase.annualRate) || 0;
+        loanCase.spreadRate = 0;
+      }
+      loanCase.spreadRate = Number(loanCase.spreadRate) || 0;
+      loanCase.baseRateManual = Number(loanCase.baseRateManual) || 0;
+      loanCase.baseRateSeriesId = (typeof loanCase.baseRateSeriesId === 'string') ? loanCase.baseRateSeriesId : null;
+
+      // 중도상환수수료 설정 보장 + 부분필드 방어(동기화로 일부 필드만 유입될 수 있음).
+      var feeDefaults = { ratePercent: 0, feeWindowMonths: 36, dayProration: true, exemptionPercent: 0, exemptionBasis: 'principal', exemptionPeriod: 'annual' };
+      if (!loanCase.prepayFee || typeof loanCase.prepayFee !== 'object') {
+        loanCase.prepayFee = feeDefaults; // feeDefaults는 이 forEach 반복마다 새로 만들어짐(케이스 간 참조 공유 없음)
+      } else {
+        var fee = loanCase.prepayFee;
+        fee.ratePercent = Number(fee.ratePercent) || 0;
+        fee.feeWindowMonths = (fee.feeWindowMonths == null) ? feeDefaults.feeWindowMonths : (Number(fee.feeWindowMonths) || 0);
+        fee.dayProration = (fee.dayProration === false) ? false : feeDefaults.dayProration;
+        fee.exemptionPercent = Number(fee.exemptionPercent) || 0;
+        fee.exemptionBasis = (fee.exemptionBasis === 'principal' || fee.exemptionBasis === 'balance') ? fee.exemptionBasis : feeDefaults.exemptionBasis;
+        fee.exemptionPeriod = (fee.exemptionPeriod === 'annual' || fee.exemptionPeriod === 'once') ? fee.exemptionPeriod : feeDefaults.exemptionPeriod;
+      }
     });
 
     // 부동산 예산 스냅샷 배열 보장 + 하위필드 정규화(동기화/구버전으로 유입된 부분 데이터 방어).
