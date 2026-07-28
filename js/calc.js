@@ -268,9 +268,10 @@ var JF = (typeof window !== 'undefined')
   // 가장 늦은 것이 이김. 첫 세그먼트 이전 달은 salaryDefault(기본 월급) 사용.
   // ============================================================
 
-  function salaryForMonth(income, month) {
-    if (!income) return 0;
-    var segs = income.salarySegments || [];
+  // bestSalarySegment — fromMonth<=month인 세그먼트 중 가장 늦은 것(carry-forward 매칭 규칙).
+  // salaryForMonth/salaryLabelForMonth가 공유(중복 매칭 로직 방지).
+  function bestSalarySegment(income, month) {
+    var segs = (income && income.salarySegments) || [];
     var best = null;
     for (var i = 0; i < segs.length; i++) {
       var s = segs[i];
@@ -279,7 +280,22 @@ var JF = (typeof window !== 'undefined')
         best = s;
       }
     }
+    return best;
+  }
+
+  function salaryForMonth(income, month) {
+    if (!income) return 0;
+    var best = bestSalarySegment(income, month);
     return best ? (best.amount || 0) : (income.salaryDefault || 0);
+  }
+
+  // salaryLabelForMonth — 해당 달에 적용 중인 기간별 월급 구간의 이름(없으면 null).
+  // 대시보드가 "어느 구간의 월급인지" 표시하는 데 사용(구간에 label을 지정하지 않았거나
+  // 첫 구간 이전이라 salaryDefault를 쓰는 달은 null).
+  function salaryLabelForMonth(income, month) {
+    var best = bestSalarySegment(income, month);
+    var label = best && best.label ? String(best.label).trim() : '';
+    return label || null;
   }
 
   // ============================================================
@@ -477,6 +493,7 @@ var JF = (typeof window !== 'undefined')
     occursIn: occursIn,
     bonusOccursIn: bonusOccursIn,
     salaryForMonth: salaryForMonth,
+    salaryLabelForMonth: salaryLabelForMonth,
     rollforward: rollforward,
     chargeDate: chargeDate,
     windowKeyFor: windowKeyFor,

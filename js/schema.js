@@ -41,7 +41,8 @@ window.JF = window.JF || {};
     return {
       id: '',
       fromMonth: null,   // "YYYY-MM"
-      amount: 0
+      amount: 0,
+      label: ''          // 구간 이름(선택, 예 "이직 후 월급") — bonusEvent/extraIncome의 label과 동일 관례
     };
   }
 
@@ -194,6 +195,10 @@ window.JF = window.JF || {};
       // 추가 수입 / 기간별 월급 배열 보장(버전과 무관하게 상시 정규화)
       if (!Array.isArray(state.income.extraIncomes)) state.income.extraIncomes = [];
       if (!Array.isArray(state.income.salarySegments)) state.income.salarySegments = [];
+      // 구간 이름(label) 보장(구버전/동기화로 유입된 세그먼트에 필드가 없을 수 있음).
+      state.income.salarySegments.forEach(function (seg) {
+        if (seg && typeof seg.label !== 'string') seg.label = '';
+      });
       // 월별 조정(salaryOverrides) 폐지(#5) — 추가 수입으로 대체. 숨은 값이 잔액을
       // 움직이지 않도록 로드 시 제거(계산도 더 이상 읽지 않음).
       if (state.income.salaryOverrides) delete state.income.salaryOverrides;

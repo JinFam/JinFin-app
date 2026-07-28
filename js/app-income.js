@@ -36,12 +36,15 @@
     segs.slice().sort(function (a, b) { return JF.format.ymCompare(a.fromMonth, b.fromMonth); }).forEach(function (seg) {
       var monthInput = el("input", { type: "month", value: seg.fromMonth, min: state.meta.horizon.start });
       var amountInput = el("input", { type: "number", value: man(seg.amount), min: "0", step: "0.1" });
+      var labelInput = el("input", { type: "text", value: seg.label || "", placeholder: "예: 이직 후 월급" });
       body.appendChild(el("div", { class: "field-row" }, [
         el("label", null, "시작월:"), monthInput,
         el("label", null, "월급(만원):"), amountInput,
+        el("label", null, "제목(선택):"), labelInput,
         el("button", { class: "btn btn-sm btn-primary", onClick: function () {
           seg.fromMonth = monthInput.value;
           seg.amount = fromMan(amountInput.value);
+          seg.label = labelInput.value;
           save();
         } }, "저장"),
         el("button", { class: "btn btn-sm btn-danger push-right", onClick: function () {
@@ -54,15 +57,18 @@
     // 기간 추가
     var newMonth = el("input", { type: "month", value: state.meta.horizon.start, min: state.meta.horizon.start });
     var newAmount = el("input", { type: "number", value: "0", min: "0", step: "0.1" });
+    var newLabel = el("input", { type: "text", value: "", placeholder: "예: 이직 후 월급" });
     body.appendChild(el("div", { class: "field-row" }, [
       el("label", null, "시작월:"), newMonth,
       el("label", null, "월급(만원):"), newAmount,
+      el("label", null, "제목(선택):"), newLabel,
       el("button", { class: "btn btn-sm btn-secondary", onClick: function () {
         if (!newMonth.value) return;
         var seg = JF.schema.emptySalarySegment();
         seg.id = uid("sal");
         seg.fromMonth = newMonth.value;
         seg.amount = fromMan(newAmount.value);
+        seg.label = newLabel.value;
         state.income.salarySegments.push(seg);
         save();
       } }, "+ 기간 추가")
@@ -262,7 +268,7 @@
   }
   function addRecurring() {
     var e = JF.schema.emptyBonusEvent();
-    e.id = uid("bonus"); e.recurring = true; e.monthDay = "12-31"; e.label = "새 정기 성과급"; e.actualsByYear = {}; e.starTag = 2;
+    e.id = uid("bonus"); e.recurring = true; e.monthDay = "01-31"; e.label = "새 정기 성과급"; e.actualsByYear = {}; e.starTag = 2;
     state.income.bonusEvents.push(e); save();
   }
   function addAdhoc() {
@@ -283,7 +289,7 @@
     ]));
     var grid = el("div", { class: "card-grid" }, (state.income.bonusEvents || []).map(bonusEditor));
     host.appendChild(grid);
-    host.appendChild(el("p", { class: "muted" }, "정기 성과급은 매년 반복되며 연도별 실제 금액을 따로 확정합니다. 상시 성과급은 특정 날짜 1회이며 [복제]로 손쉽게 추가할 수 있습니다. ★는 예상 규모 힌트입니다."));
+    host.appendChild(el("p", { class: "muted" }, "정기 성과급(1/31·7/8·12/24)은 매년 반복되며 연도별 실제 금액을 따로 확정합니다. 상시 성과급은 특정 날짜 1회이며 [복제]로 손쉽게 추가할 수 있습니다. ★는 예상 규모 힌트입니다."));
   }
 
   function render() { renderSalary(); renderExtra(); renderBonus(); }
