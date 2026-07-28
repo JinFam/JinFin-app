@@ -18,8 +18,11 @@ window.JF = window.JF || {};
     account: { seedBalance: 0 },
 
     income: {
-      salaryDefault: 0,
-      salarySegments: [],
+      // 월급 섹션(동시 발생하는 여러 수입원, 예: 본인/배우자) — salaryForMonth는 전 섹션 합산.
+      // migrate()를 거치지 않는 seed-clone 최초 부팅 경로이므로 여기서 직접 새 형태로 제공.
+      salaries: [
+        { id: 'sal-default', label: '', salaryDefault: 0, segments: [] }
+      ],
       extraIncomes: [],
       bonusEvents: []
     },

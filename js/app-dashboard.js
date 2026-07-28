@@ -177,17 +177,24 @@
 
     // 수입 값(헤더의 ★ 배치를 위해 먼저 계산) — 성과급 별표를 날짜 위에 표기해 데이터 셀 폭을 일정하게 유지(#4)
     var salaryVals = {}, bonusVals = {}, extraVals = {}, starVals = {};
-    var salaryLabelVals = {}, salaryLabelBadgeVals = {};
-    var prevSalaryLabel; // undefined 초기값 — 첫 표시 달도 라벨이 있으면 배지가 뜨도록(구간이 이미 진행 중이어도 안내)
+    // 월급 섹션별(동시 발생하는 여러 수입원, 예: 본인/배우자) 행 데이터 — 섹션당 한 행.
+    var salaryTracks = (state.income.salaries || []).map(function (sal) {
+      return { label: sal.label, valuesByMonth: {}, labelByMonth: {}, titleByMonth: {}, prevSegLabel: undefined };
+    });
     months.forEach(function (m) {
-      salaryVals[m] = salaryFor(m);
-      var lbl = JF.calc.salaryLabelForMonth(state.income, m);
-      salaryLabelVals[m] = lbl;
-      if (lbl && lbl !== prevSalaryLabel) salaryLabelBadgeVals[m] = lbl; // 구간 전환월에만 배지(연속 반복 방지)
-      prevSalaryLabel = lbl;
-      var b = bonusFor(m);
-      bonusVals[m] = b.amount || 0;
-      if (b.star) starVals[m] = b.star;
+      salaryVals[m] = salaryFor(m); // 합산(순계 계산용, 아래 netVals가 그대로 사용)
+      var breakdown = JF.calc.salaryBreakdownForMonth(state.income, m);
+      breakdown.forEach(function (b, i) {
+        var track = salaryTracks[i];
+        if (!track) return;
+        track.valuesByMonth[m] = b.amount;
+        track.titleByMonth[m] = b.segmentLabel; // 모든 달에 호버 툴팁으로 적용 중인 구간명 표시
+        if (b.segmentLabel && b.segmentLabel !== track.prevSegLabel) track.labelByMonth[m] = b.segmentLabel; // 구간 전환월에만 배지
+        track.prevSegLabel = b.segmentLabel;
+      });
+      var bon = bonusFor(m);
+      bonusVals[m] = bon.amount || 0;
+      if (bon.star) starVals[m] = bon.star;
       extraVals[m] = extraFor(m);
     });
 
@@ -227,11 +234,15 @@
 
     // 수입
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "수입")]));
-    tbody.appendChild(dataRow("월급", salaryVals, {
-      href: "income.html#salary-card",
-      labelByMonth: salaryLabelBadgeVals, // 구간 전환월에만 배지로 이름 표시
-      titleByMonth: salaryLabelVals       // 모든 달에 호버 툴팁으로 적용 중인 구간명 표시
-    }));
+    // 월급 섹션별 행(섹션 이름이 있으면 "월급 (본인 월급)" 형태로 구분, 없으면 그냥 "월급").
+    salaryTracks.forEach(function (track) {
+      var rowLabel = "월급" + (track.label ? " (" + track.label + ")" : "");
+      tbody.appendChild(dataRow(rowLabel, track.valuesByMonth, {
+        href: "income.html#salary-card",
+        labelByMonth: track.labelByMonth,
+        titleByMonth: track.titleByMonth
+      }));
+    });
     tbody.appendChild(dataRow("성과급", bonusVals, { href: "income.html#bonus-card" }));
     tbody.appendChild(dataRow("추가 수입", extraVals, { href: "income.html#extra-card" }));
 

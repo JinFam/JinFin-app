@@ -12,18 +12,31 @@
   function uid(prefix) { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
   function save() { JF.store.save(state); render(); }
 
-  // ---- 월급 (기본 + 기간별) --------------------------------------------
-  function renderSalary() {
-    var host = document.getElementById("salary-card");
-    host.innerHTML = "";
+  // ---- 월급 (섹션별: 기본 + 기간별) -------------------------------------
+  // 월급 섹션(income.salaries[])은 동시 발생하는 여러 수입원(예: 본인/배우자)을 표현한다.
+  // 대출 케이스 목록과 동일하게 자유롭게 추가/삭제 가능(고정 개수 아님).
+  function renderSalaryCard(sal) {
     var body = el("div", { class: "card-body stack" }, []);
 
+    var salLabelInput = el("input", { type: "text", value: sal.label || "", placeholder: "예: 본인 월급" });
+    body.appendChild(el("div", { class: "field-row" }, [
+      el("label", null, "섹션 이름(선택):"), salLabelInput,
+      el("button", { class: "btn btn-sm btn-primary", onClick: function () {
+        sal.label = salLabelInput.value; save();
+      } }, "저장"),
+      el("button", { class: "btn btn-sm btn-danger push-right", onClick: function () {
+        if (!window.confirm("이 월급 섹션을 삭제할까요?" + (sal.label ? " (" + sal.label + ")" : ""))) return;
+        state.income.salaries = state.income.salaries.filter(function (s) { return s.id !== sal.id; });
+        save();
+      } }, "섹션 삭제")
+    ]));
+
     // 기본 월급
-    var defaultInput = el("input", { type: "number", value: man(state.income.salaryDefault), min: "0", step: "0.1" });
+    var defaultInput = el("input", { type: "number", value: man(sal.salaryDefault), min: "0", step: "0.1" });
     body.appendChild(el("div", { class: "field-row" }, [
       el("label", null, "기본 월급(만원):"), defaultInput,
       el("button", { class: "btn btn-sm btn-primary", onClick: function () {
-        state.income.salaryDefault = fromMan(defaultInput.value); save();
+        sal.salaryDefault = fromMan(defaultInput.value); save();
       } }, "저장")
     ]));
     body.appendChild(el("div", { class: "muted" }, "기간별 월급이 설정되기 전(첫 구간 이전)의 달에 적용됩니다."));
@@ -32,7 +45,7 @@
     body.appendChild(el("div", { class: "subhead" }, "기간별 월급"));
     body.appendChild(el("div", { class: "muted" }, "각 구간은 fromMonth부터 다음 구간 전까지 계속 적용됩니다(별도 종료월 없음)."));
 
-    var segs = state.income.salarySegments || (state.income.salarySegments = []);
+    var segs = sal.segments || (sal.segments = []);
     segs.slice().sort(function (a, b) { return JF.format.ymCompare(a.fromMonth, b.fromMonth); }).forEach(function (seg) {
       var monthInput = el("input", { type: "month", value: seg.fromMonth, min: state.meta.horizon.start });
       var amountInput = el("input", { type: "number", value: man(seg.amount), min: "0", step: "0.1" });
@@ -48,7 +61,7 @@
           save();
         } }, "저장"),
         el("button", { class: "btn btn-sm btn-danger push-right", onClick: function () {
-          state.income.salarySegments = state.income.salarySegments.filter(function (s) { return s.id !== seg.id; });
+          sal.segments = sal.segments.filter(function (s) { return s.id !== seg.id; });
           save();
         } }, "삭제")
       ]));
@@ -69,16 +82,38 @@
         seg.fromMonth = newMonth.value;
         seg.amount = fromMan(newAmount.value);
         seg.label = newLabel.value;
-        state.income.salarySegments.push(seg);
+        sal.segments.push(seg);
         save();
       } }, "+ 기간 추가")
     ]));
 
-    var card = el("div", { class: "card" }, [
-      el("div", { class: "card-header" }, el("span", { class: "card-title" }, "월급")),
+    return el("div", { class: "card" }, [
+      el("div", { class: "card-header" }, el("span", { class: "card-title" }, "월급" + (sal.label ? " — " + sal.label : ""))),
       body
     ]);
-    host.appendChild(card);
+  }
+
+  function renderSalary() {
+    var host = document.getElementById("salary-card");
+    host.innerHTML = "";
+
+    var sections = state.income.salaries || (state.income.salaries = []);
+
+    var addHeader = el("div", { class: "card-header" }, [
+      el("span", { class: "card-title" }, "월급"),
+      el("button", { class: "btn btn-sm btn-secondary", onClick: function () {
+        var sal = JF.schema.emptySalary();
+        sal.id = uid("sal-sec");
+        state.income.salaries.push(sal);
+        save();
+      } }, "+ 월급 섹션 추가")
+    ]);
+    var addBody = sections.length
+      ? el("div", { class: "card-body" }, el("p", { class: "muted" }, "동시에 발생하는 여러 수입원(예: 본인/배우자)을 각각의 섹션으로 등록하세요. 합산해 대시보드에 반영됩니다."))
+      : el("div", { class: "card-body" }, el("p", { class: "muted" }, "등록된 월급 섹션이 없습니다. [+ 월급 섹션 추가]로 등록하세요."));
+    host.appendChild(el("div", { class: "card" }, [addHeader, addBody]));
+
+    sections.forEach(function (sal) { host.appendChild(renderSalaryCard(sal)); });
   }
 
   // ---- 추가 수입 -------------------------------------------------------

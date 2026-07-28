@@ -264,14 +264,15 @@ var JF = (typeof window !== 'undefined')
   }
 
   // ============================================================
-  // salaryForMonth — 기간별 월급(carry-forward). fromMonth <= month 인 세그먼트 중
-  // 가장 늦은 것이 이김. 첫 세그먼트 이전 달은 salaryDefault(기본 월급) 사용.
+  // salaryForMonth — 월급 섹션(income.salaries[], 동시 발생하는 여러 수입원 예: 본인/배우자)
+  // 전체 합산. 섹션별로 기간별 월급(carry-forward, fromMonth<=month인 구간 중 가장 늦은 것)이
+  // 있으면 그 금액, 없으면 섹션의 salaryDefault(기본 월급) 사용.
   // ============================================================
 
-  // bestSalarySegment — fromMonth<=month인 세그먼트 중 가장 늦은 것(carry-forward 매칭 규칙).
-  // salaryForMonth/salaryLabelForMonth가 공유(중복 매칭 로직 방지).
-  function bestSalarySegment(income, month) {
-    var segs = (income && income.salarySegments) || [];
+  // bestSegmentInTrack — 한 월급 섹션(track) 안에서 fromMonth<=month인 구간 중 가장 늦은 것.
+  // salaryForMonth/salaryBreakdownForMonth가 섹션별로 공유(중복 매칭 로직 방지).
+  function bestSegmentInTrack(track, month) {
+    var segs = (track && track.segments) || [];
     var best = null;
     for (var i = 0; i < segs.length; i++) {
       var s = segs[i];
@@ -284,18 +285,33 @@ var JF = (typeof window !== 'undefined')
   }
 
   function salaryForMonth(income, month) {
-    if (!income) return 0;
-    var best = bestSalarySegment(income, month);
-    return best ? (best.amount || 0) : (income.salaryDefault || 0);
+    var tracks = (income && income.salaries) || [];
+    var total = 0;
+    for (var i = 0; i < tracks.length; i++) {
+      var track = tracks[i];
+      var best = bestSegmentInTrack(track, month);
+      total += best ? (best.amount || 0) : (track.salaryDefault || 0);
+    }
+    return total;
   }
 
-  // salaryLabelForMonth — 해당 달에 적용 중인 기간별 월급 구간의 이름(없으면 null).
-  // 대시보드가 "어느 구간의 월급인지" 표시하는 데 사용(구간에 label을 지정하지 않았거나
-  // 첫 구간 이전이라 salaryDefault를 쓰는 달은 null).
-  function salaryLabelForMonth(income, month) {
-    var best = bestSalarySegment(income, month);
-    var label = best && best.label ? String(best.label).trim() : '';
-    return label || null;
+  // salaryBreakdownForMonth — 해당 달의 월급을 섹션별로 분해(대시보드가 섹션당 한 행씩
+  // 표시하는 데 사용). 각 항목: { id, trackLabel(섹션 이름, 없으면 null), amount,
+  // segmentLabel(적용 중인 구간 이름, 없으면 null) }.
+  function salaryBreakdownForMonth(income, month) {
+    var tracks = (income && income.salaries) || [];
+    return tracks.map(function (track) {
+      var best = bestSegmentInTrack(track, month);
+      var amount = best ? (best.amount || 0) : (track.salaryDefault || 0);
+      var trackLabel = (track && track.label) ? String(track.label).trim() : '';
+      var segmentLabel = (best && best.label) ? String(best.label).trim() : '';
+      return {
+        id: track.id,
+        trackLabel: trackLabel || null,
+        amount: amount,
+        segmentLabel: segmentLabel || null
+      };
+    });
   }
 
   // ============================================================
@@ -493,7 +509,7 @@ var JF = (typeof window !== 'undefined')
     occursIn: occursIn,
     bonusOccursIn: bonusOccursIn,
     salaryForMonth: salaryForMonth,
-    salaryLabelForMonth: salaryLabelForMonth,
+    salaryBreakdownForMonth: salaryBreakdownForMonth,
     rollforward: rollforward,
     chargeDate: chargeDate,
     windowKeyFor: windowKeyFor,

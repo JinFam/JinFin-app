@@ -36,13 +36,24 @@ window.JF = window.JF || {};
   }
 
   // 기간별 월급 세그먼트 — fromMonth부터 다음 세그먼트 전까지 적용(carry-forward). 원 저장.
-  // 첫 세그먼트 이전 달은 income.salaryDefault(기본 월급)을 사용.
+  // 첫 세그먼트 이전 달은 소속 월급 섹션(emptySalary)의 salaryDefault(기본 월급)을 사용.
   function emptySalarySegment() {
     return {
       id: '',
       fromMonth: null,   // "YYYY-MM"
       amount: 0,
       label: ''          // 구간 이름(선택, 예 "이직 후 월급") — bonusEvent/extraIncome의 label과 동일 관례
+    };
+  }
+
+  // 월급 섹션(동시 발생하는 여러 수입원, 예: 본인/배우자) — income.salaries[]. 각 섹션은
+  // 독립된 기본월급+기간별 월급(segments)을 가지며, salaryForMonth는 전 섹션 합산.
+  function emptySalary() {
+    return {
+      id: '',
+      label: '',         // 섹션 이름(선택, 예 "본인 월급") — 비어있으면 UI가 "월급"으로 표시
+      salaryDefault: 0,  // 이 섹션의 기간별 월급이 설정되기 전(첫 구간 이전) 달에 적용
+      segments: []       // [emptySalarySegment]
     };
   }
 
@@ -192,13 +203,43 @@ window.JF = window.JF || {};
       state.schemaVersion = SCHEMA_VERSION;
     }
     if (state.income) {
-      // 추가 수입 / 기간별 월급 배열 보장(버전과 무관하게 상시 정규화)
+      // 추가 수입 배열 보장(버전과 무관하게 상시 정규화)
       if (!Array.isArray(state.income.extraIncomes)) state.income.extraIncomes = [];
-      if (!Array.isArray(state.income.salarySegments)) state.income.salarySegments = [];
-      // 구간 이름(label) 보장(구버전/동기화로 유입된 세그먼트에 필드가 없을 수 있음).
-      state.income.salarySegments.forEach(function (seg) {
-        if (seg && typeof seg.label !== 'string') seg.label = '';
+
+      // 월급 섹션(income.salaries[], 동시 발생하는 여러 수입원) 도입 이전 구버전 보정(1회성) —
+      // 단일 salaryDefault+salarySegments를 섹션 1개로 무손실 변환(실데이터 유실 방지).
+      // seed.js(최초 부팅 seed-clone 경로는 migrate()를 안 거침, jinfinance-app-shape 메모리 참고)는
+      // 이미 salaries[] 형태로 직접 제공하므로 여기서는 "구버전에서 온 상태"만 다룬다.
+      if (!Array.isArray(state.income.salaries)) {
+        // 의미 있는 신호(salaryDefault가 실제로 숫자로 설정됐거나 segments에 항목이 있음)일 때만
+        // 마이그레이션 — 단순히 빈 salarySegments:[] 배열만 있는 경우(구 migrate()가 항상 보장하던
+        // 기본값)까지 "레거시 있음"으로 오판하면, 실질 데이터가 없는 상태끼리도 매번 다른 빈
+        // salaries 항목을 새로 합성해 동일해야 할 상태가 우연히 달라 보이는 문제가 생김(동기화
+        // deepEqual 비교/idempotency 회귀).
+        var hadLegacy = (typeof state.income.salaryDefault === 'number') ||
+          (Array.isArray(state.income.salarySegments) && state.income.salarySegments.length > 0);
+        state.income.salaries = hadLegacy ? [{
+          id: 'sal-legacy',
+          label: '',
+          salaryDefault: Number(state.income.salaryDefault) || 0,
+          segments: Array.isArray(state.income.salarySegments) ? state.income.salarySegments : []
+        }] : [];
+      }
+      delete state.income.salaryDefault;
+      delete state.income.salarySegments;
+
+      // 섹션/구간 하위필드 정규화(신규든 마이그레이션 결과든 동일하게, 동기화로 유입된
+      // 부분 데이터 방어).
+      state.income.salaries.forEach(function (sal) {
+        if (!sal) return;
+        if (typeof sal.label !== 'string') sal.label = '';
+        sal.salaryDefault = Number(sal.salaryDefault) || 0;
+        if (!Array.isArray(sal.segments)) sal.segments = [];
+        sal.segments.forEach(function (seg) {
+          if (seg && typeof seg.label !== 'string') seg.label = '';
+        });
       });
+
       // 월별 조정(salaryOverrides) 폐지(#5) — 추가 수입으로 대체. 숨은 값이 잔액을
       // 움직이지 않도록 로드 시 제거(계산도 더 이상 읽지 않음).
       if (state.income.salaryOverrides) delete state.income.salaryOverrides;
@@ -296,6 +337,7 @@ window.JF = window.JF || {};
     emptyExpenseItem: emptyExpenseItem,
     emptyBonusEvent: emptyBonusEvent,
     emptySalarySegment: emptySalarySegment,
+    emptySalary: emptySalary,
     emptyExtraIncome: emptyExtraIncome,
     emptyCard: emptyCard,
     emptyChecklist: emptyChecklist,
