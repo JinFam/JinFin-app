@@ -29082,6 +29082,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           3.18
+        ],
+        [
+          "2026-08-21",
+          3.18
         ]
       ],
       "shinhan_cofix_balance": [
@@ -45400,6 +45404,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           3
+        ],
+        [
+          "2026-08-21",
+          3
         ]
       ],
       "scfirst_6m": [
@@ -48750,6 +48758,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           3.29
+        ],
+        [
+          "2026-08-21",
+          3.3
         ]
       ],
       "scfirst_5y": [
@@ -66720,6 +66732,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           4.33
+        ],
+        [
+          "2026-08-21",
+          4.35
         ]
       ],
       "scfirst_cofix_new": [
@@ -83042,6 +83058,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           3.18
+        ],
+        [
+          "2026-08-21",
+          3.18
         ]
       ],
       "scfirst_cofix_balance": [
@@ -99360,6 +99380,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           3
+        ],
+        [
+          "2026-08-21",
+          3
         ]
       ],
       "scfirst_cofix_new_balance": [
@@ -106362,6 +106386,10 @@ window.JF = window.JF || {};
         [
           "2026-08-20",
           2.65
+        ],
+        [
+          "2026-08-21",
+          2.65
         ]
       ],
       "bok_base": [
@@ -106619,31 +106647,31 @@ window.JF = window.JF || {};
       },
       "shinhan_cofix_new": {
         "source": "SC제일은행 API(COFIX 신규취급액기준, 전국은행연합회 공시와 교차검증 일치)",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "shinhan_cofix_balance": {
         "source": "SC제일은행 API(COFIX 잔액기준, 전국은행연합회 공시와 교차검증 일치)",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "scfirst_6m": {
         "source": "SC제일은행 여신기준금리 API",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "scfirst_5y": {
         "source": "SC제일은행 여신기준금리 API",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "scfirst_cofix_new": {
         "source": "SC제일은행 여신기준금리 API(COFIX 신규취급액기준)",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "scfirst_cofix_balance": {
         "source": "SC제일은행 여신기준금리 API(COFIX 잔액기준)",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "scfirst_cofix_new_balance": {
         "source": "SC제일은행 여신기준금리 API(COFIX New잔액기준)",
-        "asOf": "2026-08-20"
+        "asOf": "2026-08-21"
       },
       "bok_base": {
         "source": "한국은행 기준금리 추이(수동 갱신 버튼)",
