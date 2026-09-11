@@ -10578,6 +10578,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3.5245
+        ],
+        [
+          "2026-09-11",
+          3.5353
         ]
       ],
       "shinhan_5y": [
@@ -12848,6 +12852,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           4.456
+        ],
+        [
+          "2026-09-11",
+          4.471
         ]
       ],
       "shinhan_cofix_new": [
@@ -29230,6 +29238,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3.18
+        ],
+        [
+          "2026-09-11",
+          3.18
         ]
       ],
       "shinhan_cofix_balance": [
@@ -45608,6 +45620,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3
+        ],
+        [
+          "2026-09-11",
+          3
         ]
       ],
       "scfirst_6m": [
@@ -49018,6 +49034,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3.5
+        ],
+        [
+          "2026-09-11",
+          3.51
         ]
       ],
       "scfirst_5y": [
@@ -67048,6 +67068,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           4.42
+        ],
+        [
+          "2026-09-11",
+          4.44
         ]
       ],
       "scfirst_cofix_new": [
@@ -83430,6 +83454,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3.18
+        ],
+        [
+          "2026-09-11",
+          3.18
         ]
       ],
       "scfirst_cofix_balance": [
@@ -99808,6 +99836,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           3
+        ],
+        [
+          "2026-09-11",
+          3
         ]
       ],
       "scfirst_cofix_new_balance": [
@@ -106870,6 +106902,10 @@ window.JF = window.JF || {};
         [
           "2026-09-10",
           2.65
+        ],
+        [
+          "2026-09-11",
+          2.65
         ]
       ],
       "bok_base": [
@@ -107118,40 +107154,40 @@ window.JF = window.JF || {};
     "meta": {
       "shinhan_6m": {
         "source": "신한은행 홈페이지 · 주요시장금리",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "shinhan_5y": {
         "source": "신한은행 홈페이지 · 주요시장금리(WebSquare, firecrawl-interact 기준일자 스테핑으로 백필)",
-        "asOf": "2026-09-10",
+        "asOf": "2026-09-11",
         "note": "2023-08-29~오늘 조밀 커버리지 + 2017-12-27~2018-01-05 단독 표본(중간 구간은 예산 제약으로 미백필, go-forward 자동화로 계속 채워나갈 예정)"
       },
       "shinhan_cofix_new": {
         "source": "SC제일은행 API(COFIX 신규취급액기준, 전국은행연합회 공시와 교차검증 일치)",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "shinhan_cofix_balance": {
         "source": "SC제일은행 API(COFIX 잔액기준, 전국은행연합회 공시와 교차검증 일치)",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "scfirst_6m": {
         "source": "SC제일은행 여신기준금리 API",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "scfirst_5y": {
         "source": "SC제일은행 여신기준금리 API",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "scfirst_cofix_new": {
         "source": "SC제일은행 여신기준금리 API(COFIX 신규취급액기준)",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "scfirst_cofix_balance": {
         "source": "SC제일은행 여신기준금리 API(COFIX 잔액기준)",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "scfirst_cofix_new_balance": {
         "source": "SC제일은행 여신기준금리 API(COFIX New잔액기준)",
-        "asOf": "2026-09-10"
+        "asOf": "2026-09-11"
       },
       "bok_base": {
         "source": "한국은행 기준금리 추이(수동 갱신 버튼)",
