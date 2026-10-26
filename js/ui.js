@@ -10,14 +10,15 @@ window.JF = window.JF || {};
 
   var NAV_LINKS = [
     { href: "index.html", label: "대시보드" },
-    { href: "realestate.html", label: "부동산 예산" },
     { href: "income.html", label: "수입" },
     { href: "expenses.html", label: "지출" },
     { href: "cards.html", label: "카드/계좌" },
-    { href: "card-helper.html", label: "카드도우미" },
     { href: "checklist.html", label: "체크리스트" },
+    { separator: true },
+    { href: "realestate.html", label: "부동산 예산" },
     { href: "loan.html", label: "대출계산기" },
-    { href: "rates.html", label: "금리" }
+    { href: "rates.html", label: "금리" },
+    { href: "card-helper.html", label: "카드도우미" }
   ];
 
   // el(tag, attrs, children) — small DOM builder helper.
@@ -103,15 +104,59 @@ window.JF = window.JF || {};
   }
 
   // ---- 대표 대출(헤더 예상 원리금) — 기기 로컬 선택(동기화 안 함, finalRate 캐시와 동일 패턴) ----
-  var REP_KEY = "jinfinance:loan:repId";
-  function getRepresentativeLoan() {
-    try { return window.localStorage.getItem(REP_KEY) || null; } catch (e) { return null; }
-  }
-  function setRepresentativeLoan(id) {
+  // 슬롯: main | sub1 | sub2. 같은 대출을 다른 슬롯에 지정하면 이전 슬롯은 해제(토글 오프).
+  var REP_KEY = "jinfinance:loan:repId";        // 구버전(단일 대표) — main 으로 간주
+  var REP_SLOTS_KEY = "jinfinance:loan:repSlots";
+  var REP_SLOTS = ["main", "sub1", "sub2"];
+  var REP_SLOT_LABEL = { main: "Main", sub1: "Sub1", sub2: "Sub2" };
+
+  function getRepSlots() {
+    var out = { main: null, sub1: null, sub2: null };
     try {
-      if (id) window.localStorage.setItem(REP_KEY, id);
-      else window.localStorage.removeItem(REP_KEY);
+      var raw = window.localStorage.getItem(REP_SLOTS_KEY);
+      if (raw) {
+        var o = JSON.parse(raw) || {};
+        REP_SLOTS.forEach(function (k) { out[k] = o[k] || null; });
+      } else {
+        out.main = window.localStorage.getItem(REP_KEY) || null;
+      }
     } catch (e) {}
+    return out;
+  }
+  function saveRepSlots(slots) {
+    try {
+      window.localStorage.setItem(REP_SLOTS_KEY, JSON.stringify(slots));
+      window.localStorage.removeItem(REP_KEY);
+    } catch (e) {}
+  }
+  // getRepSlot(id): id 가 지정된 슬롯 이름(없으면 null)
+  function getRepSlot(id) {
+    var slots = getRepSlots();
+    for (var i = 0; i < REP_SLOTS.length; i++) { if (id && slots[REP_SLOTS[i]] === id) return REP_SLOTS[i]; }
+    return null;
+  }
+  // setRepSlot(id, slot): slot=null 이면 해제. 다른 슬롯에 이미 있으면 그쪽을 비우고, 대상 슬롯의 기존 값은 교체.
+  function setRepSlot(id, slot) {
+    var slots = getRepSlots();
+    REP_SLOTS.forEach(function (k) { if (slots[k] === id) slots[k] = null; });
+    if (slot && REP_SLOTS.indexOf(slot) !== -1) slots[slot] = id;
+    saveRepSlots(slots);
+    renderRepPayment();
+  }
+  // 하위 호환: 단일 대표 API(= main 슬롯)
+  function getRepresentativeLoan() { return getRepSlots().main; }
+  function setRepresentativeLoan(id) {
+    var slots = getRepSlots();
+    if (id) { REP_SLOTS.forEach(function (k) { if (slots[k] === id) slots[k] = null; }); slots.main = id; }
+    else slots.main = null;
+    saveRepSlots(slots);
+    renderRepPayment();
+  }
+  // 삭제된 대출 id 를 모든 슬롯에서 제거
+  function clearRepLoan(id) {
+    var slots = getRepSlots();
+    REP_SLOTS.forEach(function (k) { if (slots[k] === id) slots[k] = null; });
+    saveRepSlots(slots);
     renderRepPayment();
   }
 
@@ -165,36 +210,41 @@ window.JF = window.JF || {};
     return map;
   }
 
-  // renderRepPayment(): 대표 대출의 월 원리금을 브랜드 아래(최종금리 옆 줄)에 표기.
+  // renderRepPayment(): Main/Sub1/Sub2 대표 대출을 브랜드 아래에 "이름 | 연이자율 | 예상 원리금"으로 표기.
   // JF.loan(순수 엔진)·JF.store 가 로드된 페이지에서만 계산(모든 페이지에 loan.js 로드됨).
   function renderRepPayment() {
     var host = document.getElementById("jf-ref-payment");
     if (!host) return;
     host.textContent = "";
-    var id = getRepresentativeLoan();
-    if (!id || !JF.loan || typeof JF.loan.computeSchedule !== "function" || !JF.store) return;
+    if (!JF.loan || typeof JF.loan.computeSchedule !== "function" || !JF.store) return;
+    var slots = getRepSlots();
+    if (!slots.main && !slots.sub1 && !slots.sub2) return;
     var state;
     try { state = JF.store.load(); } catch (e) { return; }
     var loans = (state && state.loans) || [];
-    var c = null;
-    for (var i = 0; i < loans.length; i++) { if (loans[i].id === id) { c = loans[i]; break; } }
-    if (!c) return; // 대표로 지정한 케이스가 삭제됨 → 표기 없음
-    var rate = resolveCaseRate(c);
-    var out = JF.loan.computeSchedule({
-      amount: c.amount, termMonths: c.termMonths, annualRate: rate, graceMonths: c.graceMonths,
-      startDate: c.startDate, extraPayment: c.extraPayment || { amount: 0, fromInstallment: 0 },
-      prepayments: c.prepayments || [], rateChanges: c.rateChanges || []
+    REP_SLOTS.forEach(function (slot) {
+      var id = slots[slot];
+      if (!id) return;
+      var c = null;
+      for (var i = 0; i < loans.length; i++) { if (loans[i].id === id) { c = loans[i]; break; } }
+      if (!c) return; // 삭제된 케이스 → 표기 없음
+      var rate = resolveCaseRate(c);
+      var out = JF.loan.computeSchedule({
+        amount: c.amount, termMonths: c.termMonths, annualRate: rate, graceMonths: c.graceMonths,
+        startDate: c.startDate, extraPayment: c.extraPayment || { amount: 0, fromInstallment: 0 },
+        prepayments: c.prepayments || [], rateChanges: c.rateChanges || []
+      });
+      var pay = out.summary.firstMonthlyPayment;
+      var wonStr = pay ? ((JF.format && JF.format.formatWon) ? JF.format.formatWon(pay) : String(pay)) + "원" : "-";
+      var live = isCaseRateLive(c);
+      host.appendChild(el("div", { class: "jf-rep-line jf-rep-" + slot, title: REP_SLOT_LABEL[slot] + (live ? " (최종금리 연동)" : "") }, [
+        el("span", { class: "jf-rep-name" }, c.name || "대표대출"),
+        el("span", { class: "jf-rep-sep" }, " | "),
+        el("span", { class: "jf-rep-rate" }, "연 " + Number(rate).toFixed(2) + "%"),
+        el("span", { class: "jf-rep-sep" }, " | "),
+        el("span", { class: "jf-ref-pay-val" }, wonStr)
+      ]));
     });
-    var pay = out.summary.firstMonthlyPayment;
-    if (!pay) return;
-    var live = isCaseRateLive(c);
-    var wonStr = (JF.format && JF.format.formatWon) ? JF.format.formatWon(pay) : String(pay);
-    host.appendChild(el("span", { class: "jf-ref-pay-label" },
-      (c.name ? c.name : "대표대출") + " 예상 원리금 "));
-    host.appendChild(el("span", { class: "jf-ref-pay-val" }, wonStr + "원"));
-    if (live) host.appendChild(el("span", { class: "jf-ref-pay-live" }, " (실시간)"));
-    host.title = (c.name || "대표대출") + " · 연 " + Number(rate).toFixed(2) + "% · 월 원리금 " + wonStr + "원"
-      + (live ? " (최종금리 연동)" : "");
   }
 
   // 등락 표기: 상승 ▲, 하락 ▼, 보합 ─ (기준 대비 %p).
@@ -261,6 +311,7 @@ window.JF = window.JF || {};
       "ul",
       { class: "jf-nav-list" },
       NAV_LINKS.map(function (link) {
+        if (link.separator) return el("li", { class: "jf-nav-sep", role: "separator", "aria-hidden": "true" });
         var isActive = link.href === activePage;
         var a = el(
           "a",
@@ -344,6 +395,10 @@ window.JF = window.JF || {};
     onFinalRate: onFinalRate,
     getRepresentativeLoan: getRepresentativeLoan,
     setRepresentativeLoan: setRepresentativeLoan,
+    getRepSlots: getRepSlots,
+    getRepSlot: getRepSlot,
+    setRepSlot: setRepSlot,
+    clearRepLoan: clearRepLoan,
     refreshRepPayment: renderRepPayment,
     computeCaseSchedule: computeCaseSchedule,
     buildLoanSchedules: buildLoanSchedules,

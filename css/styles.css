@@ -277,6 +277,13 @@ body.jf-has-banner .jf-nav {
 .jf-ref-pay-label { color: var(--jf-text-muted); font-weight: 600; }
 .jf-ref-pay-val   { color: var(--jf-success); font-weight: 800; }
 .jf-ref-pay-live  { color: var(--jf-success); font-weight: 600; }
+.jf-rep-line { white-space: nowrap; font-weight: 500; }
+.jf-rep-line .jf-rep-sep { color: var(--jf-text-muted); }
+.jf-rep-line .jf-rep-name { color: var(--jf-text); }
+.jf-rep-line .jf-rep-rate { color: var(--jf-primary); }
+.jf-rep-main { font-weight: 800; font-size: 0.82rem; }
+.jf-rep-main .jf-rep-name, .jf-rep-main .jf-rep-rate, .jf-rep-main .jf-ref-pay-val { font-weight: 800; }
+.jf-nav-sep { width: 1px; align-self: stretch; margin: 0.2rem 0.4rem; background: var(--jf-border, #cbd5e1); }
 
 .jf-nav-list {
   list-style: none;

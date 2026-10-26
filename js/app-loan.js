@@ -26,11 +26,11 @@
     return Number(r.value).toFixed(2) + "%" + (c.linkToFinalRate ? " (" + r.source + ")" : "");
   }
 
-  // 대표 대출 지정/해제(기기 로컬). 지정 시 상단 헤더에 예상 원리금 표기.
-  function toggleRep(id) {
-    if (!JF.ui || typeof JF.ui.setRepresentativeLoan !== "function") return;
-    var cur = JF.ui.getRepresentativeLoan();
-    JF.ui.setRepresentativeLoan(cur === id ? null : id);
+  // 대표 대출 슬롯 지정/해제(기기 로컬). 지정 시 상단 헤더에 이름|연이자율|예상 원리금 표기.
+  // 같은 대출을 다른 슬롯에 지정하면 이전 슬롯은 자동 해제.
+  function setRepSlot(id, slot) {
+    if (!JF.ui || typeof JF.ui.setRepSlot !== "function") return;
+    JF.ui.setRepSlot(id, slot || null);
     render();
   }
   function man(n) { return JF.format.toMan(n); }
@@ -95,8 +95,8 @@
     if (selectedCaseId === id) selectedCaseId = null;
     var idx = compareIds.indexOf(id);
     if (idx !== -1) compareIds.splice(idx, 1);
-    if (JF.ui && typeof JF.ui.getRepresentativeLoan === "function" && JF.ui.getRepresentativeLoan() === id) {
-      JF.ui.setRepresentativeLoan(null); // 대표로 지정된 케이스 삭제 → 헤더 표기 해제
+    if (JF.ui && typeof JF.ui.clearRepLoan === "function") {
+      JF.ui.clearRepLoan(id); // 대표로 지정된 케이스 삭제 → 헤더 표기 해제
     }
     save();
   }
@@ -311,7 +311,11 @@
   function caseRow(c) {
     var checked = compareIds.indexOf(c.id) !== -1;
     var compareCb = el("input", { type: "checkbox", checked: checked, onChange: function () { toggleCompare(c.id); } });
-    var isRep = !!(JF.ui && typeof JF.ui.getRepresentativeLoan === "function" && JF.ui.getRepresentativeLoan() === c.id);
+    var curSlot = (JF.ui && typeof JF.ui.getRepSlot === "function" && JF.ui.getRepSlot(c.id)) || "";
+    var repSel = el("select", { onChange: function (e) { setRepSlot(c.id, e.target.value); } },
+      [["", "없음"], ["main", "Main"], ["sub1", "Sub1"], ["sub2", "Sub2"]].map(function (o) {
+        return el("option", { value: o[0], selected: o[0] === curSlot }, o[1]);
+      }));
     return el("tr", null, [
       el("td", null, c.name || "(이름 없음)"),
       el("td", { class: "num" }, won(c.amount)),
@@ -324,9 +328,7 @@
         el("button", { class: "btn btn-sm btn-danger", onClick: function () { removeCase(c.id); } }, "삭제")
       ]),
       el("td", { class: "text-center" }, [compareCb, el("span", { class: "muted" }, " 비교")]),
-      el("td", { class: "text-center" },
-        el("button", { class: "btn btn-sm " + (isRep ? "btn-primary" : "btn-ghost"), onClick: function () { toggleRep(c.id); } },
-          isRep ? "★ 대표" : "대표 지정"))
+      el("td", { class: "text-center" }, repSel)
     ]);
   }
 
