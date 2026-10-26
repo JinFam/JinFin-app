@@ -35,9 +35,24 @@
   function fromMan(m) { return JF.format.fromMan(m); }
   function uid(p) { return p + "-" + Math.random().toString(36).slice(2, 8); }
   function save() { JF.store.save(state); render(); }
-  function isSpecialTab() { return tab === "특수"; }
-  function isLoanTab() { return tab === "대출"; }
+  var ALL_ORDER = ["고정-카드", "고정-이체", "생활", "교육", "특수", "추가"]; // "전체" 탭 표시 순서(대출 제외)
+  // 항목이 속한 탭 이름. "전체" 탭에서도 항목 단위로 올바른 편집/삭제/이동 로직을 타게 함.
+  function tabOf(item) {
+    if (tab !== "전체") return tab;
+    if ((state.specials || []).indexOf(item) >= 0) return "특수";
+    return item.type;
+  }
+  function isSpecialTab(item) { return tabOf(item) === "특수"; }
+  function isLoanTab(item) { return tabOf(item) === "대출"; }
   function listForTab() {
+    if (tab === "전체") {
+      var all = [];
+      ALL_ORDER.forEach(function (t) {
+        if (t === "특수") { all = all.concat(state.specials || []); }
+        else { all = all.concat(state.expenses.filter(function (e) { return e.type === t; })); }
+      });
+      return all;
+    }
     if (tab === "특수") return state.specials;
     if (tab === "대출") return state.loanExpenses || [];
     return state.expenses.filter(function (e) { return e.type === tab; });
@@ -67,7 +82,7 @@
   function renderTabs() {
     var host = document.getElementById("exp-tabs");
     host.innerHTML = "";
-    var bar = el("div", { class: "field-row" }, ["대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].map(function (t) {
+    var bar = el("div", { class: "field-row" }, ["전체", "대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].map(function (t) {
       return el("button", { class: "btn btn-sm " + (tab === t ? "btn-primary" : "btn-secondary"),
         onClick: function () { tab = t; openId = null; render(); } }, t);
     }));
@@ -79,11 +94,26 @@
     return c ? c.name : id;
   }
 
-  // 결제 수단 라벨: null=미배정 / "transfer"=계좌이체 / 그 외=카드명
-  function methodLabel(item) {
-    if (item.assignedCardId === "transfer") return item.accountName ? "계좌: " + item.accountName : "계좌이체";
-    if (item.assignedCardId) return cardName(item.assignedCardId);
-    return "미배정";
+  function bankAccount(id) {
+    return (state.bankAccounts || []).filter(function (x) { return x.id === id; })[0] || null;
+  }
+  // 카드 열: 카드 결제 항목만 카드명, 그 외 "-"
+  function cardLabel(item) {
+    if (item.assignedCardId && item.assignedCardId !== "transfer") return cardName(item.assignedCardId);
+    return "-";
+  }
+  // 계좌 열: 계좌이체는 항목에 지정한 계좌, 카드 결제는 카드에 연동된 결제 계좌(파생, 흐리게)
+  function accountCell(item) {
+    if (item.assignedCardId === "transfer") {
+      var a = bankAccount(item.assignedAccountId);
+      return a ? a.name : el("span", { class: "muted" }, "미지정");
+    }
+    if (item.assignedCardId) {
+      var c = (state.cards || []).filter(function (x) { return x.id === item.assignedCardId; })[0];
+      var ca = c && bankAccount(c.paymentAccountId);
+      return ca ? el("span", { class: "muted", title: "카드에 연동된 결제 계좌" }, ca.name) : "-";
+    }
+    return "-";
   }
 
   // 적용기간 라벨: installment는 자체 기간, oneoff는 해당월 1개, 그 외는 시작~종료(계속)
@@ -195,6 +225,7 @@
 
   // ---- 편집 폼 -------------------------------------------------------
   function editForm(item) {
+    var itab = tabOf(item);
     var body = el("div", { class: "card-body stack" }, []);
     // 편집 기본 적용월: 현재월이 기간(horizon) 이전이면 기간 시작월로 clamp.
     // (현재월이 기간 밖이면 currentMonth 기준 append/보정이 rollforward에 반영되지 않으므로)
@@ -212,7 +243,7 @@
     body.appendChild(catDatalist());
 
     // 고정-카드/고정-이체: 결제수단이 바뀌면 탭도 옮길 수 있게 종류 전환 셀렉트 제공.
-    if (tab === "고정-카드" || tab === "고정-이체") {
+    if (itab === "고정-카드" || itab === "고정-이체") {
       var fixedKindSel = el("select", { onChange: function () {
         item.type = fixedKindSel.value; save();
       } }, [
@@ -223,7 +254,7 @@
     }
 
     // 특수: 모드 선택
-    if (isSpecialTab()) {
+    if (isSpecialTab(item)) {
       var modeSel = el("select", { onChange: function () {
         item.mode = modeSel.value;
         if (item.mode === "installment" && !item.installment) {
@@ -241,11 +272,11 @@
     }
 
     // 금액/모드 편집 — 대출 항목은 수동/자동 모드 UI(별도), 그 외는 기존 금액 편집.
-    if (isLoanTab()) {
+    if (isLoanTab(item)) {
       loanEditSection(body, item);
     } else {
     body.appendChild(el("div", { class: "subhead" }, "금액"));
-    if (tab === "추가") {
+    if (itab === "추가") {
       var amtOneoff = el("input", { type: "number", value: currentPlanned(item), min: "0", step: "1000" });
       var monthOneoff = el("input", { type: "month", value: item.recurrence.startMonth, min: state.meta.horizon.start });
       body.appendChild(el("div", { class: "field-row" }, [el("label", null, "금액(원):"), amtOneoff, el("label", null, "해당 년월:"), monthOneoff]));
@@ -313,7 +344,7 @@
     }
 
     // 반복 규칙 (추가/대출 항목은 별도 규칙 편집이 필요 없음)
-    if (tab !== "추가" && !isLoanTab()) {
+    if (itab !== "추가" && !isLoanTab(item)) {
       var RECURRENCE_KINDS = [
         { value: "monthly", label: "매월" },
         { value: "interval", label: "매 N개월마다" },
@@ -340,7 +371,7 @@
             item.recurrence = rec; save();
           } }, "반복 저장")]));
         body.appendChild(el("div", { class: "muted" }, "예: 시작월부터 매 3개월마다 발생 (분기)."));
-        if (tab === "교육") {
+        if (itab === "교육") {
           body.appendChild(el("div", { class: "muted" }, "교육비는 종료월(예: 2028-02)이 있는 기간한정 항목입니다. 분기/연 추가 지출은 반복=interval(N=3)/yearly 로 별도 항목을 추가하세요."));
         }
       }
@@ -359,11 +390,12 @@
       if (isTransfer) { chargeDay.value = ""; counts.checked = false; }
     }
     // 계좌이체 선택 시 계좌명(자유 입력, 기존 계좌명 자동완성) — 대시보드 하위항목 그룹 기준
-    var acctNames = {};
-    (state.expenses || []).concat(state.specials || []).forEach(function (x) { if (x.accountName) acctNames[x.accountName] = true; });
-    var acctInput = el("input", { type: "text", list: "exp-acct-list", placeholder: "예: 신한 월급통장", value: item.accountName || "" });
-    var acctRow = el("div", { class: "field-row" }, [el("label", null, "계좌명:"), acctInput,
-      el("datalist", { id: "exp-acct-list" }, Object.keys(acctNames).map(function (n) { return el("option", { value: n }, n); }))]);
+    var acctSel = el("select", null, [el("option", { value: "" }, "(미지정)")].concat(
+      (state.bankAccounts || []).map(function (a) {
+        return el("option", { value: a.id, selected: item.assignedAccountId === a.id }, a.name);
+      })));
+    var acctRow = el("div", { class: "field-row" }, [el("label", null, "계좌:"), acctSel,
+      (state.bankAccounts || []).length ? null : el("span", { class: "muted" }, "'카드/계좌' 페이지의 계좌 탭에서 먼저 계좌를 등록하세요.")]);
     var cardSel = el("select", { onChange: syncMethod }, [
       el("option", { value: "" }, "(미배정)"),
       el("option", { value: "transfer", selected: item.assignedCardId === "transfer" }, "계좌이체(카드 아님)")
@@ -385,13 +417,13 @@
           return;
         }
         item.assignedCardId = newCard;
-        item.accountName = isTransfer ? (acctInput.value.trim() || null) : null;
+        item.assignedAccountId = isTransfer ? (acctSel.value || null) : null;
         item.chargeDay = isTransfer ? null : newDay;                 // 계좌이체는 결제일 없음
         item.countsTowardPerformance = isTransfer ? false : counts.checked; // 계좌이체는 실적 제외
         item.name = name.value; item.category = cat.value;
         save();
       } }, "태그/이름 저장"),
-      el("span", { class: "muted" }, "카드 대신 계좌이체면 결제 수단에서 '계좌이체' 선택(자동 실적 제외). 주유비는 혜택은 받되 '실적 포함' 해제(Deep Oil 주유 제외).")
+      el("span", { class: "muted" }, "카드 대신 계좌이체면 결제 수단에서 '계좌이체' 선택 후 계좌 지정(자동 실적 제외). 카드 결제의 계좌는 카드/계좌 페이지의 카드 편집에서 연동. 주유비는 혜택은 받되 '실적 포함' 해제(Deep Oil 주유 제외).")
     ]));
 
     // 이 달 실제 보정 (N4) — 원 단위 입력, 기간 시작월 기본
@@ -433,8 +465,8 @@
 
   function removeItem(item) {
     // 3-way: 특수→specials, 대출→loanExpenses, 그 외→expenses (탭별로 대상 배열이 다름)
-    if (isSpecialTab()) { state.specials = state.specials.filter(function (x) { return x.id !== item.id; }); }
-    else if (isLoanTab()) { state.loanExpenses = (state.loanExpenses || []).filter(function (x) { return x.id !== item.id; }); }
+    if (isSpecialTab(item)) { state.specials = state.specials.filter(function (x) { return x.id !== item.id; }); }
+    else if (isLoanTab(item)) { state.loanExpenses = (state.loanExpenses || []).filter(function (x) { return x.id !== item.id; }); }
     else { state.expenses = state.expenses.filter(function (x) { return x.id !== item.id; }); }
     openId = null; save();
   }
@@ -442,8 +474,8 @@
   // 항목 순서 이동: dir -1(위) / +1(아래). 같은 탭 내에서만 이동, 경계에서는 no-op.
   // 3-way: 특수/대출은 배열 전체가 형제, 그 외(expenses)는 같은 type만 형제.
   function moveItem(item, dir) {
-    var arr = isSpecialTab() ? state.specials : (isLoanTab() ? (state.loanExpenses || []) : state.expenses);
-    var siblings = arr.filter(function (x) { return (isSpecialTab() || isLoanTab()) ? true : x.type === item.type; });
+    var arr = isSpecialTab(item) ? state.specials : (isLoanTab(item) ? (state.loanExpenses || []) : state.expenses);
+    var siblings = arr.filter(function (x) { return (isSpecialTab(item) || isLoanTab(item)) ? true : x.type === item.type; });
     var pos = siblings.indexOf(item);
     var target = siblings[pos + dir];
     if (!target) return;
@@ -453,14 +485,15 @@
   }
 
   function addItem() {
-    if (isSpecialTab()) {
+    if (tab === "전체") return; // 전체 탭은 조회/편집 전용 — 추가는 각 탭에서
+    if (tab === "특수") {
       state.specials.push({
         id: uid("sp"), name: "새 특수 항목", type: "특수", mode: "fixedMonthly",
         recurrence: { kind: "period", startMonth: state.meta.horizon.start, endMonth: state.meta.horizon.end },
         effectiveValues: [{ fromMonth: state.meta.horizon.start, plannedAmount: 0, actualAmount: null }],
         actualsByMonth: {}, pastLock: true, assignedCardId: null, chargeDay: null, countsTowardPerformance: false
       });
-    } else if (isLoanTab()) {
+    } else if (tab === "대출") {
       var li = JF.schema.emptyLoanExpenseItem();
       li.id = uid("ln"); li.name = "새 대출 항목";
       state.loanExpenses = state.loanExpenses || [];
@@ -557,18 +590,22 @@
     renderTabs();
     var host = document.getElementById("exp-list");
     host.innerHTML = "";
+    var isAll = tab === "전체";
     host.appendChild(el("div", { class: "card" }, el("div", { class: "card-body" }, el("div", { class: "field-row" }, [
-      el("button", { class: "btn btn-primary", onClick: addItem }, "+ " + tab + " 항목 추가")
+      isAll ? el("span", { class: "muted" }, "고정-카드·고정-이체·생활·교육·특수·추가 항목을 한 번에 봅니다(대출 제외). 항목 추가는 각 탭에서 하세요.")
+        : el("button", { class: "btn btn-primary", onClick: addItem }, "+ " + tab + " 항목 추가")
     ]))));
 
     var items = listForTab();
-    var thead = el("thead", null, el("tr", null, ["항목", "분류", "비용", "적용기간", "반복", "카드", "실적", "순서", "편집"].map(function (h) {
+    var heads = ["항목"].concat(isAll ? ["구분"] : [], ["분류", "비용", "적용기간", "반복", "카드", "계좌", "실적", "순서", "편집"]);
+    var colspan = String(heads.length);
+    var thead = el("thead", null, el("tr", null, heads.map(function (h) {
       return el("th", null, h);
     })));
     var tbody = el("tbody", null, []);
 
     if (!items.length) {
-      tbody.appendChild(el("tr", null, el("td", { colspan: "9", class: "muted" }, tab + " 항목이 없습니다.")));
+      tbody.appendChild(el("tr", null, el("td", { colspan: colspan, class: "muted" }, tab + " 항목이 없습니다.")));
     } else {
       items.forEach(function (item) {
         var amt = item.mode === "installment"
@@ -578,11 +615,13 @@
           openId = (openId === item.id ? null : item.id); render();
         } }, [
           el("td", { class: "cell-wrap" }, item.name),
+          isAll ? el("td", null, tabOf(item)) : null,
           el("td", null, el("span", { class: "cat-chip", style: { background: categoryColor(item.category) } }, item.category || "-")),
           el("td", null, amt),
           el("td", null, periodLabel(item)),
           el("td", null, recurrenceLabel(item)),
-          el("td", null, methodLabel(item)),
+          el("td", null, cardLabel(item)),
+          el("td", null, accountCell(item)),
           el("td", null, item.countsTowardPerformance ? "포함" : "제외"),
           el("td", { class: "reorder-cell" }, [
             el("button", { class: "btn btn-sm btn-ghost", onClick: function (ev) { ev.stopPropagation(); moveItem(item, -1); } }, "↑"),
@@ -591,7 +630,7 @@
           el("td", null, openId === item.id ? "닫기 ▾" : "편집 ▸")
         ]));
         if (openId === item.id) {
-          tbody.appendChild(el("tr", null, el("td", { class: "exp-edit-cell", colspan: "9" }, editForm(item))));
+          tbody.appendChild(el("tr", null, el("td", { class: "exp-edit-cell", colspan: colspan }, editForm(item))));
         }
       });
     }
@@ -602,8 +641,9 @@
   function boot() {
     JF.ui.renderNav("expenses.html");
     state = JF.store.load();
+    state.bankAccounts = state.bankAccounts || [];
     var params = new URLSearchParams(location.search);
-    var t = params.get("tab"); if (t && ["대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
+    var t = params.get("tab"); if (t && ["전체", "대출", "고정-카드", "고정-이체", "생활", "교육", "특수", "추가"].indexOf(t) >= 0) tab = t;
     var o = params.get("open"); if (o) openId = o;
     perfMonth = JF.format.ymCompare(state.meta.currentMonth, state.meta.horizon.start) < 0
       ? state.meta.horizon.start : state.meta.currentMonth;

@@ -15,9 +15,21 @@ window.JF = window.JF || {};
       effectiveValues: [ { fromMonth: null, plannedAmount: 0, actualAmount: null } ],
       actualsByMonth: {},
       pastLock: true,
-      assignedCardId: null,
+      assignedCardId: null, // null=미배정 | "transfer"=계좌이체 | 카드 id
+      assignedAccountId: null, // assignedCardId==="transfer"일 때 state.bankAccounts[].id (카드 결제는 카드의 paymentAccountId에서 파생)
       chargeDay: null,
       countsTowardPerformance: false
+    };
+  }
+
+  // 은행 계좌 — state.bankAccounts[]. (state.account=통장 시드잔액과 별개) 한도는 원 단위.
+  function emptyBankAccount() {
+    return {
+      id: '',
+      name: '',
+      dailyLimit: null,   // 1일 이체한도(원)
+      perTxLimit: null,   // 1회 이체한도(원)
+      benefits: ''        // 혜택내용(자유 텍스트)
     };
   }
 
@@ -77,6 +89,7 @@ window.JF = window.JF || {};
       issuer: '',
       billingWindow: { start: 1 }, // end = start-1 파생, start=1 = 달력월
       paymentDay: null,
+      paymentAccountId: null,     // 결제 계좌: state.bankAccounts[].id
       limit: null,
       annualFee: 0,
       performanceConditions: [], // [{label, threshold, primary, exclusions}]
@@ -251,6 +264,24 @@ window.JF = window.JF || {};
     if (!Array.isArray(state.checklists)) state.checklists = [];
     // "대출" 지출 탭 항목 배열 보장(구버전/미필드 상태 방어). state.loans(대출계산기)와 별개.
     if (!Array.isArray(state.loanExpenses)) state.loanExpenses = [];
+    // 은행 계좌 배열 보장 + 직전 버전의 항목별 accountName(자유 입력)을 계좌 엔티티로 승격.
+    // id는 이름에서 결정적으로 생성 — 기기마다 따로 마이그레이션해도 같은 계좌로 합쳐지게(동기화).
+    if (!Array.isArray(state.bankAccounts)) state.bankAccounts = [];
+    var acctIdByName = {};
+    state.bankAccounts.forEach(function (a) { if (a && a.name) acctIdByName[a.name] = a.id; });
+    (state.expenses || []).concat(state.specials || [], state.loanExpenses || []).forEach(function (it) {
+      if (!it || it.accountName == null) return;
+      var nm = String(it.accountName).trim();
+      if (nm) {
+        if (!acctIdByName[nm]) {
+          var h = 0; for (var i = 0; i < nm.length; i++) { h = (h * 31 + nm.charCodeAt(i)) | 0; }
+          var a = emptyBankAccount(); a.id = 'acct-' + Math.abs(h).toString(36); a.name = nm;
+          state.bankAccounts.push(a); acctIdByName[nm] = a.id;
+        }
+        if (it.assignedCardId === 'transfer' && !it.assignedAccountId) it.assignedAccountId = acctIdByName[nm];
+      }
+      delete it.accountName;
+    });
     // 레거시 quarterly → interval(매 3개월)로 정규화(UI가 interval만 노출)
     var normRec = function (it) {
       if (it && it.recurrence && it.recurrence.kind === 'quarterly') {
@@ -340,6 +371,7 @@ window.JF = window.JF || {};
     emptySalary: emptySalary,
     emptyExtraIncome: emptyExtraIncome,
     emptyCard: emptyCard,
+    emptyBankAccount: emptyBankAccount,
     emptyChecklist: emptyChecklist,
     emptyDdayGroup: emptyDdayGroup,
     emptyChecklistItem: emptyChecklistItem,

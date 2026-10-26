@@ -214,7 +214,10 @@
 
     // 결제 수단 그룹 키: "카드: 이름" / "계좌: 이름" / "미배정"
     function methodKey(it) {
-      if (it.assignedCardId === "transfer") return "계좌: " + (it.accountName || "계좌이체");
+      if (it.assignedCardId === "transfer") {
+        var ba = (state.bankAccounts || []).filter(function (x) { return x.id === it.assignedAccountId; })[0];
+        return "계좌: " + (ba ? ba.name : "계좌이체");
+      }
       if (it.assignedCardId) {
         var c = (state.cards || []).filter(function (x) { return x.id === it.assignedCardId; })[0];
         return "카드: " + (c ? c.name : it.assignedCardId);

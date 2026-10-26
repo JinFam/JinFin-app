@@ -13,7 +13,7 @@ window.JF = window.JF || {};
     { href: "realestate.html", label: "부동산 예산" },
     { href: "income.html", label: "수입" },
     { href: "expenses.html", label: "지출" },
-    { href: "cards.html", label: "카드" },
+    { href: "cards.html", label: "카드/계좌" },
     { href: "card-helper.html", label: "카드도우미" },
     { href: "checklist.html", label: "체크리스트" },
     { href: "loan.html", label: "대출계산기" },

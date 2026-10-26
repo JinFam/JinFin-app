@@ -6,8 +6,15 @@
   var el = JF.ui.el;
   var state;
   var editingId = null; // 편집 중인 카드 id (null=없음, ""=신규)
+  var editingAcctId = null; // 편집 중인 계좌 id (null=없음, ""=신규)
+  var tab = "카드";      // 카드 | 계좌
 
   function uid() { return "card-" + Math.random().toString(36).slice(2, 8); }
+  function acctUid() { return "acct-" + Math.random().toString(36).slice(2, 8); }
+  function acctName(id) {
+    var a = (state.bankAccounts || []).filter(function (x) { return x.id === id; })[0];
+    return a ? a.name : null;
+  }
   function save() { JF.store.save(state); render(); }
   function won(n) { return JF.format.formatWon(n) + "원"; }
   function windowLabel(card) {
@@ -46,6 +53,9 @@
     var infoRows = [
       kvRow("산정기간", windowLabel(card)),
       kvRow("결제일", card.paymentDay ? card.paymentDay + "일" : "-"),
+      kvRow("결제 계좌", card.paymentAccountId
+        ? (acctName(card.paymentAccountId) || el("span", { class: "badge badge-muted" }, "삭제된 계좌"))
+        : el("span", { class: "badge badge-muted" }, "미연동")),
       kvRow("한도", card.limit != null ? won(card.limit) : el("span", { class: "badge badge-muted" }, "발급 전")),
       kvRow("연회비", won(card.annualFee || 0))
     ];
@@ -125,6 +135,12 @@
     body.appendChild(textField("발급사", c.issuer, function (v) { c.issuer = v; }));
     body.appendChild(numField("산정기간 개시일(1~31, 1=달력월)", c.billingWindow.start, function (v) { c.billingWindow.start = v || 1; }));
     body.appendChild(numField("결제일", c.paymentDay, function (v) { c.paymentDay = v; }));
+    var acctSel = el("select", { onChange: function () { c.paymentAccountId = acctSel.value || null; } },
+      [el("option", { value: "" }, "(미연동)")].concat((state.bankAccounts || []).map(function (a) {
+        return el("option", { value: a.id, selected: c.paymentAccountId === a.id }, a.name || a.id);
+      })));
+    body.appendChild(el("div", { class: "field-row" }, [el("label", null, "결제 계좌"), acctSel,
+      (state.bankAccounts || []).length ? null : el("span", { class: "muted" }, "'계좌' 탭에서 먼저 계좌를 등록하세요.")]));
     body.appendChild(numField("한도(원, 발급전은 비움)", c.limit, function (v) { c.limit = v; }));
     body.appendChild(numField("연회비(원)", c.annualFee, function (v) { c.annualFee = v || 0; }));
 
@@ -232,11 +248,108 @@
     ]));
   }
 
+  // ---- 계좌 탭 ---------------------------------------------------------
+  function wonOrDash(n) { return n != null ? won(n) : "-"; }
+
+  function acctBlock(a) {
+    var usedByCards = (state.cards || []).filter(function (c) { return c.paymentAccountId === a.id; });
+    var info = el("table", { class: "kv-table" }, [
+      el("caption", null, "기본 정보"),
+      el("tbody", null, [
+        kvRow("1일 이체한도", wonOrDash(a.dailyLimit)),
+        kvRow("1회 이체한도", wonOrDash(a.perTxLimit)),
+        kvRow("혜택내용", a.benefits ? el("span", { style: { whiteSpace: "pre-wrap" } }, a.benefits) : "-"),
+        kvRow("연동 카드", usedByCards.length
+          ? usedByCards.map(function (c) { return el("span", { class: "badge badge-muted" }, c.name); })
+          : "-")
+      ])
+    ]);
+    return el("div", { class: "card" }, [
+      el("div", { class: "card-header" }, el("span", { class: "card-title" }, a.name || "(이름 없음)")),
+      el("div", { class: "card-body stack" }, info),
+      el("div", { class: "card-footer" }, [
+        el("button", { class: "btn btn-sm btn-secondary", onClick: function () { editingAcctId = a.id; render(); } }, "편집"),
+        el("button", { class: "btn btn-sm btn-danger", onClick: function () {
+          if (!window.confirm("이 계좌를 삭제할까요? (" + a.name + ")\n연동된 카드/지출 항목의 계좌 연결은 해제됩니다.")) return;
+          state.bankAccounts = state.bankAccounts.filter(function (x) { return x.id !== a.id; });
+          (state.cards || []).forEach(function (c) { if (c.paymentAccountId === a.id) c.paymentAccountId = null; });
+          (state.expenses || []).concat(state.specials || [], state.loanExpenses || []).forEach(function (it) {
+            if (it.assignedAccountId === a.id) it.assignedAccountId = null;
+          });
+          save();
+        } }, "삭제")
+      ])
+    ]);
+  }
+
+  function acctEditForm(acct) {
+    var isNew = !acct;
+    var a = acct ? JSON.parse(JSON.stringify(acct)) : JF.schema.emptyBankAccount();
+    if (isNew) a.id = acctUid();
+    var name = el("input", { type: "text", value: a.name || "", onInput: function () { a.name = name.value; } });
+    var daily = el("input", { type: "number", min: "0", step: "10000", value: a.dailyLimit != null ? a.dailyLimit : "",
+      onInput: function () { a.dailyLimit = daily.value === "" ? null : Number(daily.value); } });
+    var per = el("input", { type: "number", min: "0", step: "10000", value: a.perTxLimit != null ? a.perTxLimit : "",
+      onInput: function () { a.perTxLimit = per.value === "" ? null : Number(per.value); } });
+    var ben = el("textarea", { rows: "3", onInput: function () { a.benefits = ben.value; } }, a.benefits || "");
+    var body = el("div", { class: "card-body stack" }, [
+      el("div", { class: "field-row" }, [el("label", null, "계좌명"), name]),
+      el("div", { class: "field-row" }, [el("label", null, "1일 이체한도(원)"), daily]),
+      el("div", { class: "field-row" }, [el("label", null, "1회 이체한도(원)"), per]),
+      el("div", null, [el("label", null, "혜택내용"), ben]),
+      el("div", { class: "field-row" }, [
+        el("button", { class: "btn btn-primary", onClick: function () {
+          if (!(a.name || "").trim()) { JF.ui.showBanner("계좌명을 입력하세요.", "warn"); return; }
+          a.name = a.name.trim();
+          if (isNew) { state.bankAccounts.push(a); } else {
+            var i = state.bankAccounts.findIndex(function (x) { return x.id === a.id; });
+            if (i >= 0) state.bankAccounts[i] = a;
+          }
+          editingAcctId = null; save();
+        } }, "저장"),
+        el("button", { class: "btn btn-ghost", onClick: function () { editingAcctId = null; render(); } }, "취소")
+      ])
+    ]);
+    return el("div", { class: "card", style: { borderColor: "var(--jf-primary)" } }, [
+      el("div", { class: "card-header" }, el("span", { class: "card-title" }, isNew ? "새 계좌 추가" : "계좌 편집")),
+      body
+    ]);
+  }
+
+  function renderTabs() {
+    var host = document.getElementById("cards-tabs");
+    host.innerHTML = "";
+    host.appendChild(el("div", { class: "card" }, el("div", { class: "card-body" },
+      el("div", { class: "field-row" }, ["카드", "계좌"].map(function (t) {
+        return el("button", { class: "btn btn-sm " + (tab === t ? "btn-primary" : "btn-secondary"),
+          onClick: function () { tab = t; editingId = null; editingAcctId = null; render(); } }, t);
+      })))));
+  }
+
   function render() {
+    renderTabs();
+    var banner = document.getElementById("cards-banner");
+    var toolbar = document.getElementById("cards-toolbar");
+    var grid = document.getElementById("cards-grid");
+    var guide = document.getElementById("cards-guide");
+    grid.innerHTML = "";
+    if (tab === "계좌") {
+      banner.innerHTML = ""; guide.innerHTML = "";
+      toolbar.innerHTML = "";
+      var accts = state.bankAccounts || [];
+      toolbar.appendChild(el("div", { class: "card" },
+        el("div", { class: "card-header" }, [
+          el("span", { class: "muted" }, "총 " + accts.length + "개 계좌"),
+          el("button", { class: "btn btn-primary", onClick: function () { editingAcctId = ""; render(); } }, "+ 계좌 추가")
+        ])));
+      if (editingAcctId === "") grid.appendChild(acctEditForm(null));
+      accts.forEach(function (a) {
+        grid.appendChild(editingAcctId === a.id ? acctEditForm(a) : acctBlock(a));
+      });
+      return;
+    }
     renderBanner();
     renderToolbar();
-    var grid = document.getElementById("cards-grid");
-    grid.innerHTML = "";
     if (editingId === "") { grid.appendChild(editForm(null)); }
     (state.cards || []).forEach(function (card) {
       if (editingId === card.id) { grid.appendChild(editForm(card)); }
@@ -248,6 +361,7 @@
   function boot() {
     JF.ui.renderNav("cards.html");
     state = JF.store.load();
+    state.bankAccounts = state.bankAccounts || [];
     render();
     if (JF.syncUI) JF.syncUI.bind({ get: function () { return state; }, set: function (s) { state = s; }, render: render });
   }
