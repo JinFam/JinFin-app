@@ -212,6 +212,17 @@
 
     var tbody = el("tbody", null, []);
 
+    // 결제 수단 그룹 키: "카드: 이름" / "계좌: 이름" / "미배정"
+    function methodKey(it) {
+      if (it.assignedCardId === "transfer") return "계좌: " + (it.accountName || "계좌이체");
+      if (it.assignedCardId) {
+        var c = (state.cards || []).filter(function (x) { return x.id === it.assignedCardId; })[0];
+        return "카드: " + (c ? c.name : it.assignedCardId);
+      }
+      return "미배정";
+    }
+    function methodRank(k) { return k.indexOf("카드:") === 0 ? 0 : (k.indexOf("계좌:") === 0 ? 1 : 2); }
+
     function dataRow(label, valuesByMonth, opts) {
       opts = opts || {};
       var labelNode = opts.href ? el("a", { href: opts.href, class: "row-link" }, label) : label;
@@ -273,7 +284,24 @@
         });
         if (hit) { vals[m] = sum; any = true; }
       });
-      if (any) tbody.appendChild(dataRow(type, vals, { href: "expenses.html?tab=" + encodeURIComponent(type) }));
+      if (!any) return;
+      tbody.appendChild(dataRow(type, vals, { href: "expenses.html?tab=" + encodeURIComponent(type) }));
+      // 하위항목: 결제 수단별(카드 / 계좌 / 미배정) 소계
+      var groups = {}, order = [];
+      (state.expenses || []).forEach(function (it) {
+        if (it.type !== type) return;
+        var key = methodKey(it);
+        if (!groups[key]) { groups[key] = {}; order.push(key); }
+        months.forEach(function (m) {
+          var v = cellFor(it, m);
+          if (v != null) groups[key][m] = (groups[key][m] || 0) + v;
+        });
+      });
+      order.sort(function (a, b) { return methodRank(a) - methodRank(b) || (a < b ? -1 : a > b ? 1 : 0); });
+      order.forEach(function (key) {
+        tbody.appendChild(dataRow("└ " + key, groups[key], { rowClass: "row-sub",
+          href: "expenses.html?tab=" + encodeURIComponent(type) }));
+      });
     });
 
     // 요약

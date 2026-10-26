@@ -81,7 +81,7 @@
 
   // 결제 수단 라벨: null=미배정 / "transfer"=계좌이체 / 그 외=카드명
   function methodLabel(item) {
-    if (item.assignedCardId === "transfer") return "계좌이체";
+    if (item.assignedCardId === "transfer") return item.accountName ? "계좌: " + item.accountName : "계좌이체";
     if (item.assignedCardId) return cardName(item.assignedCardId);
     return "미배정";
   }
@@ -355,8 +355,15 @@
       var isTransfer = cardSel.value === "transfer";
       chargeDay.disabled = isTransfer;
       counts.disabled = isTransfer;
+      acctRow.hidden = !isTransfer;
       if (isTransfer) { chargeDay.value = ""; counts.checked = false; }
     }
+    // 계좌이체 선택 시 계좌명(자유 입력, 기존 계좌명 자동완성) — 대시보드 하위항목 그룹 기준
+    var acctNames = {};
+    (state.expenses || []).concat(state.specials || []).forEach(function (x) { if (x.accountName) acctNames[x.accountName] = true; });
+    var acctInput = el("input", { type: "text", list: "exp-acct-list", placeholder: "예: 신한 월급통장", value: item.accountName || "" });
+    var acctRow = el("div", { class: "field-row" }, [el("label", null, "계좌명:"), acctInput,
+      el("datalist", { id: "exp-acct-list" }, Object.keys(acctNames).map(function (n) { return el("option", { value: n }, n); }))]);
     var cardSel = el("select", { onChange: syncMethod }, [
       el("option", { value: "" }, "(미배정)"),
       el("option", { value: "transfer", selected: item.assignedCardId === "transfer" }, "계좌이체(카드 아님)")
@@ -365,6 +372,7 @@
     syncMethod();
     body.appendChild(el("div", { class: "field-row" }, [el("label", null, "결제 수단:"), cardSel, el("label", null, "결제일:"), chargeDay,
       el("label", null, [counts, " 실적 포함"])]));
+    body.appendChild(acctRow);
     body.appendChild(el("div", { class: "field-row" }, [
       el("button", { class: "btn btn-sm btn-secondary", onClick: function () {
         var newCard = cardSel.value || null;
@@ -377,6 +385,7 @@
           return;
         }
         item.assignedCardId = newCard;
+        item.accountName = isTransfer ? (acctInput.value.trim() || null) : null;
         item.chargeDay = isTransfer ? null : newDay;                 // 계좌이체는 결제일 없음
         item.countsTowardPerformance = isTransfer ? false : counts.checked; // 계좌이체는 실적 제외
         item.name = name.value; item.category = cat.value;
