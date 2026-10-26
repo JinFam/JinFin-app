@@ -43,7 +43,8 @@ window.JF = window.JF || {};
       actualAmount: null,       // non-recurring 전용
       actualsByYear: {},        // recurring 전용, key = "YYYY"
       starTag: 1,
-      recurring: false
+      recurring: false,
+      depositAccountId: null // 입금 계좌: state.bankAccounts[].id
     };
   }
 
@@ -64,6 +65,7 @@ window.JF = window.JF || {};
     return {
       id: '',
       label: '',         // 섹션 이름(선택, 예 "본인 월급") — 비어있으면 UI가 "월급"으로 표시
+      depositAccountId: null, // 입금 계좌: state.bankAccounts[].id
       salaryDefault: 0,  // 이 섹션의 기간별 월급이 설정되기 전(첫 구간 이전) 달에 적용
       segments: []       // [emptySalarySegment]
     };
@@ -78,7 +80,8 @@ window.JF = window.JF || {};
       month: null,        // "YYYY-MM"
       plannedAmount: 0,
       actualAmount: null, // 확정 시 입력(없으면 계획값 사용)
-      note: ''            // 상세 내역(펼치기)
+      note: '',           // 상세 내역(펼치기)
+      depositAccountId: null // 입금 계좌: state.bankAccounts[].id
     };
   }
 

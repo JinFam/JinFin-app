@@ -270,11 +270,15 @@
       el("div", { class: "card-footer" }, [
         el("button", { class: "btn btn-sm btn-secondary", onClick: function () { editingAcctId = a.id; render(); } }, "편집"),
         el("button", { class: "btn btn-sm btn-danger", onClick: function () {
-          if (!window.confirm("이 계좌를 삭제할까요? (" + a.name + ")\n연동된 카드/지출 항목의 계좌 연결은 해제됩니다.")) return;
+          if (!window.confirm("이 계좌를 삭제할까요? (" + a.name + ")\n연동된 카드/지출/수입 항목의 계좌 연결은 해제됩니다.")) return;
           state.bankAccounts = state.bankAccounts.filter(function (x) { return x.id !== a.id; });
           (state.cards || []).forEach(function (c) { if (c.paymentAccountId === a.id) c.paymentAccountId = null; });
           (state.expenses || []).concat(state.specials || [], state.loanExpenses || []).forEach(function (it) {
             if (it.assignedAccountId === a.id) it.assignedAccountId = null;
+          });
+          var inc = state.income || {};
+          (inc.salaries || []).concat(inc.bonusEvents || [], inc.extraIncomes || []).forEach(function (x) {
+            if (x.depositAccountId === a.id) x.depositAccountId = null;
           });
           save();
         } }, "삭제")

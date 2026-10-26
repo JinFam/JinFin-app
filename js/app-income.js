@@ -12,6 +12,19 @@
   function uid(prefix) { return prefix + "-" + Math.random().toString(36).slice(2, 8); }
   function save() { JF.store.save(state); render(); }
 
+  // 입금 계좌 선택 — 변경 즉시 저장(재렌더 없음: 다른 입력칸의 미저장 값 보존).
+  // 계좌는 '카드/계좌' 페이지의 계좌 탭에서 등록한다.
+  function depositRow(item) {
+    var accts = state.bankAccounts || [];
+    var sel = el("select", { onChange: function () {
+      item.depositAccountId = sel.value || null; JF.store.save(state);
+    } }, [el("option", { value: "" }, "(미지정)")].concat(accts.map(function (a) {
+      return el("option", { value: a.id, selected: item.depositAccountId === a.id }, a.name);
+    })));
+    return el("div", { class: "field-row" }, [el("label", null, "입금 계좌:"), sel,
+      accts.length ? null : el("span", { class: "muted" }, "'카드/계좌' 페이지의 계좌 탭에서 먼저 계좌를 등록하세요.")]);
+  }
+
   // ---- 월급 (섹션별: 기본 + 기간별) -------------------------------------
   // 월급 섹션(income.salaries[])은 동시 발생하는 여러 수입원(예: 본인/배우자)을 표현한다.
   // 대출 케이스 목록과 동일하게 자유롭게 추가/삭제 가능(고정 개수 아님).
@@ -30,6 +43,8 @@
         save();
       } }, "섹션 삭제")
     ]));
+
+    body.appendChild(depositRow(sal));
 
     // 기본 월급
     var defaultInput = el("input", { type: "number", value: man(sal.salaryDefault), min: "0", step: "0.1" });
@@ -169,6 +184,8 @@
     var actual = el("input", { type: "number", value: (item.actualAmount != null ? man(item.actualAmount) : ""), placeholder: "미확정", min: "0", step: "0.1" });
     body.appendChild(el("div", { class: "field-row" }, [el("label", null, "실제 금액(만원):"), actual]));
 
+    body.appendChild(depositRow(item));
+
     var note = el("textarea", { rows: "3", onInput: function () { item.note = note.value; } }, item.note || "");
     body.appendChild(el("div", null, [el("label", null, "상세 내역:"), note]));
 
@@ -237,6 +254,7 @@
 
     var label = el("input", { type: "text", value: ev.label || "" });
     body.appendChild(el("div", { class: "field-row" }, [el("label", null, "이름:"), label]));
+    body.appendChild(depositRow(ev));
 
     if (ev.recurring) {
       var md = el("input", { type: "text", value: ev.monthDay || "", placeholder: "MM-DD" });
@@ -332,6 +350,7 @@
   function boot() {
     JF.ui.renderNav("income.html");
     state = JF.store.load();
+    state.bankAccounts = state.bankAccounts || [];
     render();
     if (JF.syncUI) JF.syncUI.bind({ get: function () { return state; }, set: function (s) { state = s; }, render: render });
   }

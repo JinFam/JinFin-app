@@ -1303,3 +1303,9 @@ table.table td.loan-payoff-best-cell {
 .re-popover-row { display: flex; align-items: center; gap: 0.5rem; }
 .re-popover-row label { flex: 0 0 auto; color: var(--jf-text-muted); font-size: 0.85rem; }
 .re-popover-footer { display: flex; justify-content: flex-end; }
+
+/* 대시보드 카드/계좌별 보기: 그룹 소계 행 */
+tr.row-group th, tr.row-group td {
+  font-weight: 600;
+  background: var(--jf-primary-soft);
+}

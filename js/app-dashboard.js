@@ -7,6 +7,8 @@
   var state;
   var mode = "hybrid"; // hybrid | plan | actual
   var showVar = false;
+  var view = "item";      // item(항목별 → 하위 카드/계좌) | account(카드/계좌별 → 하위 항목)
+  try { if (window.localStorage.getItem("jinfinance:dash:view") === "account") view = "account"; } catch (e) {}
   var loanSchedules = {}; // 자동 모드 대출 항목용 스케줄 맵(render() 시작부에서 재계산)
 
   function man(n) { return JF.format.toMan(n); }           // 원 -> 만원(정수)
@@ -28,17 +30,32 @@
     return JF.calc.salaryForMonth(state.income, month);
   }
 
+  function extraValueFor(x, month) {
+    if (x.month !== month) return null;
+    var planned = x.plannedAmount || 0;
+    var actual = (x.actualAmount != null ? x.actualAmount : planned);
+    if (mode === "plan") return planned;
+    if (mode === "actual") return actual;
+    return (JF.format.ymCompare(month, state.meta.currentMonth) < 0 ? actual : planned);
+  }
+
   function extraFor(month) {
     var total = 0;
     (state.income.extraIncomes || []).forEach(function (x) {
-      if (x.month !== month) return;
-      var planned = x.plannedAmount || 0;
-      var actual = (x.actualAmount != null ? x.actualAmount : planned);
-      if (mode === "plan") total += planned;
-      else if (mode === "actual") total += actual;
-      else total += (JF.format.ymCompare(month, state.meta.currentMonth) < 0 ? actual : planned);
+      var v = extraValueFor(x, month);
+      if (v != null) total += v;
     });
     return total;
+  }
+
+  function bonusValueFor(ev, month) {
+    var planned = ev.plannedAmount;
+    var actual = ev.recurring
+      ? (ev.actualsByYear && ev.actualsByYear[month.slice(0, 4)] != null ? ev.actualsByYear[month.slice(0, 4)] : planned)
+      : (ev.actualAmount != null ? ev.actualAmount : planned);
+    if (mode === "plan") return planned;
+    if (mode === "actual") return actual;
+    return (JF.format.ymCompare(month, state.meta.currentMonth) < 0) ? actual : planned; // hybrid
   }
 
   function bonusFor(month) {
@@ -46,19 +63,7 @@
     var total = 0, star = 0;
     (state.income.bonusEvents || []).forEach(function (ev) {
       if (!JF.calc.bonusOccursIn(ev, month)) return;
-      var planned = ev.plannedAmount, val;
-      if (mode === "plan") { val = planned; }
-      else if (mode === "actual") {
-        val = ev.recurring
-          ? (ev.actualsByYear && ev.actualsByYear[month.slice(0, 4)] != null ? ev.actualsByYear[month.slice(0, 4)] : planned)
-          : (ev.actualAmount != null ? ev.actualAmount : planned);
-      } else { // hybrid
-        var actual = ev.recurring
-          ? (ev.actualsByYear && ev.actualsByYear[month.slice(0, 4)] != null ? ev.actualsByYear[month.slice(0, 4)] : planned)
-          : (ev.actualAmount != null ? ev.actualAmount : planned);
-        val = (JF.format.ymCompare(month, state.meta.currentMonth) < 0) ? actual : planned;
-      }
-      total += val;
+      total += bonusValueFor(ev, month);
       if (ev.starTag > star) star = ev.starTag;
     });
     return { amount: total, star: star };
@@ -118,6 +123,22 @@
       }, "계획−실제 차이")
     ]);
 
+    function viewBtn(key, label) {
+      return el("button", {
+        class: "btn btn-sm " + (view === key ? "btn-primary" : "btn-secondary"),
+        onClick: function () {
+          view = key;
+          try { window.localStorage.setItem("jinfinance:dash:view", key); } catch (e) {}
+          render();
+        }
+      }, label);
+    }
+    var viewRow = el("div", { class: "field-row" }, [
+      el("span", { class: "muted" }, "분류 보기:"),
+      viewBtn("item", "항목별 (하위: 카드/계좌)"),
+      viewBtn("account", "카드/계좌별 (하위: 항목)")
+    ]);
+
     var start = el("input", { type: "month", value: state.meta.horizon.start });
     var end = el("input", { type: "month", value: state.meta.horizon.end });
     var horizonRow = el("div", { class: "field-row" }, [
@@ -165,7 +186,7 @@
 
     host.appendChild(el("div", { class: "card" }, [
       el("div", { class: "card-header" }, el("span", { class: "card-title" }, "표시 설정")),
-      el("div", { class: "card-body stack" }, [modeRow, horizonRow, seedRow, backupRow])
+      el("div", { class: "card-body stack" }, [modeRow, viewRow, horizonRow, seedRow, backupRow])
     ]));
   }
 
@@ -246,66 +267,143 @@
       return el("tr", { class: opts.rowClass || null }, cells);
     }
 
+    function acctNameOf(id) {
+      var a = id && (state.bankAccounts || []).filter(function (x) { return x.id === id; })[0];
+      return a ? a.name : null;
+    }
+    function mergeOpts(base, extra) {
+      var o = {}; Object.keys(base).forEach(function (k) { o[k] = base[k]; });
+      Object.keys(extra || {}).forEach(function (k) { o[k] = extra[k]; });
+      return o;
+    }
+    function hasAny(vals) { return Object.keys(vals).length > 0; }
+    function sumVals(list) {
+      var out = {};
+      list.forEach(function (e) { Object.keys(e.vals).forEach(function (m) { out[m] = (out[m] || 0) + e.vals[m]; }); });
+      return out;
+    }
+    function groupBy(entries, keyFn, rankFn) {
+      var groups = {}, order = [];
+      entries.forEach(function (e) {
+        var k = keyFn(e);
+        if (!groups[k]) { groups[k] = []; order.push(k); }
+        groups[k].push(e);
+      });
+      order.sort(function (a, b) { return rankFn(a) - rankFn(b) || (a < b ? -1 : a > b ? 1 : 0); });
+      return order.map(function (k) { return { key: k, entries: groups[k] }; });
+    }
+    // 카드/계좌별 보기: 그룹 소계 행 + 하위 항목 행
+    function appendGrouped(entries, keyFn, rankFn) {
+      groupBy(entries, keyFn, rankFn).forEach(function (g) {
+        tbody.appendChild(dataRow(g.key, sumVals(g.entries), { rowClass: "row-group" }));
+        g.entries.forEach(function (e) {
+          tbody.appendChild(dataRow("└ " + e.label, e.vals, mergeOpts({ rowClass: "row-sub", href: e.href }, e.opts)));
+        });
+      });
+    }
+    // 항목별 보기: 항목 집계 행 아래에 카드/계좌별 소계 하위 행
+    function appendSubGroups(entries, keyFn, rankFn, href) {
+      groupBy(entries, keyFn, rankFn).forEach(function (g) {
+        tbody.appendChild(dataRow("└ " + g.key, sumVals(g.entries), { rowClass: "row-sub", href: href }));
+      });
+    }
+    function incomeKey(e) { var n = acctNameOf(e.acctId); return n ? "계좌: " + n : "미지정"; }
+    function incomeRank(k) { return k === "미지정" ? 1 : 0; }
+
+    // 수입 항목 엔트리 (월급 섹션별 / 성과급 이벤트별 / 추가 수입별)
+    var salaryEntries = salaryTracks.map(function (track, i) {
+      var sal = (state.income.salaries || [])[i] || {};
+      return { label: "월급" + (track.label ? " (" + track.label + ")" : ""), vals: track.valuesByMonth,
+        acctId: sal.depositAccountId, href: "income.html#salary-card",
+        opts: { labelByMonth: track.labelByMonth, titleByMonth: track.titleByMonth } };
+    });
+    var bonusEntries = [];
+    (state.income.bonusEvents || []).forEach(function (ev) {
+      var vals = {};
+      months.forEach(function (m) { if (JF.calc.bonusOccursIn(ev, m)) vals[m] = bonusValueFor(ev, m); });
+      if (hasAny(vals)) bonusEntries.push({ label: "성과급: " + (ev.label || "(무제목)"), vals: vals, acctId: ev.depositAccountId, href: "income.html#bonus-card" });
+    });
+    var extraEntries = [];
+    (state.income.extraIncomes || []).forEach(function (x) {
+      var vals = {};
+      months.forEach(function (m) { var v = extraValueFor(x, m); if (v != null) vals[m] = v; });
+      if (hasAny(vals)) extraEntries.push({ label: "추가수입: " + (x.label || "(무제목)"), vals: vals, acctId: x.depositAccountId, href: "income.html#extra-card" });
+    });
+
     // 수입
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "수입")]));
-    // 월급 섹션별 행(섹션 이름이 있으면 "월급 (본인 월급)" 형태로 구분, 없으면 그냥 "월급").
-    salaryTracks.forEach(function (track) {
-      var rowLabel = "월급" + (track.label ? " (" + track.label + ")" : "");
-      tbody.appendChild(dataRow(rowLabel, track.valuesByMonth, {
-        href: "income.html#salary-card",
-        labelByMonth: track.labelByMonth,
-        titleByMonth: track.titleByMonth
-      }));
-    });
-    tbody.appendChild(dataRow("성과급", bonusVals, { href: "income.html#bonus-card" }));
-    tbody.appendChild(dataRow("추가 수입", extraVals, { href: "income.html#extra-card" }));
+    if (view === "account") {
+      appendGrouped(salaryEntries.concat(bonusEntries, extraEntries), incomeKey, incomeRank);
+    } else {
+      // 월급 섹션별 행(섹션 이름이 있으면 "월급 (본인 월급)" 형태로 구분, 없으면 그냥 "월급").
+      salaryEntries.forEach(function (e) {
+        tbody.appendChild(dataRow(e.label, e.vals, mergeOpts({ href: e.href }, e.opts)));
+      });
+      tbody.appendChild(dataRow("성과급", bonusVals, { href: "income.html#bonus-card" }));
+      appendSubGroups(bonusEntries, incomeKey, incomeRank, "income.html#bonus-card");
+      tbody.appendChild(dataRow("추가 수입", extraVals, { href: "income.html#extra-card" }));
+      appendSubGroups(extraEntries, incomeKey, incomeRank, "income.html#extra-card");
+    }
 
     // 지출 — 대출(개별, 강조) + 특수(개별, 강조) + 고정-카드/고정-이체/생활/교육/추가
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "지출")]));
-    // 대출 개별행(탭 순서와 동일하게 특수보다 위). 특수처럼 집계 제외, 개별행 전용.
-    (state.loanExpenses || []).forEach(function (li) {
+    function expenseEntry(it, tabName, typeLabel) {
       var vals = {};
-      months.forEach(function (m) { var v = cellFor(li, m); if (v != null) vals[m] = v; });
-      tbody.appendChild(dataRow(li.name, vals, { rowClass: "row-highlight",
-        href: "expenses.html?tab=" + encodeURIComponent("대출") + "&open=" + encodeURIComponent(li.id) }));
-    });
-    (state.specials || []).forEach(function (sp) {
-      var vals = {};
-      months.forEach(function (m) { var v = cellFor(sp, m); if (v != null) vals[m] = v; });
-      tbody.appendChild(dataRow(sp.name, vals, { rowClass: "row-highlight",
-        href: "expenses.html?tab=" + encodeURIComponent("특수") + "&open=" + encodeURIComponent(sp.id) }));
-    });
-    // 고정-카드/고정-이체/생활/교육/추가 집계 (breakdown 사용은 hybrid 전용이므로 셀 합으로 재계산해 모드 일관성 유지)
-    ["고정-카드", "고정-이체", "생활", "교육", "추가"].forEach(function (type) {
-      var vals = {}, any = false;
-      months.forEach(function (m) {
-        var sum = 0, hit = false;
-        (state.expenses || []).forEach(function (it) {
-          if (it.type !== type) return;
-          var v = cellFor(it, m);
-          if (v != null) { sum += v; hit = true; }
-        });
-        if (hit) { vals[m] = sum; any = true; }
+      months.forEach(function (m) { var v = cellFor(it, m); if (v != null) vals[m] = v; });
+      return { item: it, label: it.name + " (" + typeLabel + ")", vals: vals,
+        href: "expenses.html?tab=" + encodeURIComponent(tabName) + "&open=" + encodeURIComponent(it.id) };
+    }
+    if (view === "account") {
+      // 카드: 카드명(→ 연동 결제 계좌) / 계좌: 계좌명 / 미배정 으로 묶고 하위에 개별 항목
+      var all = [];
+      (state.loanExpenses || []).forEach(function (li) { all.push(expenseEntry(li, "대출", "대출")); });
+      (state.specials || []).forEach(function (sp) { all.push(expenseEntry(sp, "특수", "특수")); });
+      (state.expenses || []).forEach(function (it) { all.push(expenseEntry(it, it.type, it.type)); });
+      all = all.filter(function (e) { return hasAny(e.vals); });
+      appendGrouped(all, function (e) {
+        var it = e.item, k = methodKey(it);
+        if (it.assignedCardId && it.assignedCardId !== "transfer") {
+          var c = (state.cards || []).filter(function (x) { return x.id === it.assignedCardId; })[0];
+          var pn = c && acctNameOf(c.paymentAccountId);
+          if (pn) k += " → " + pn;
+        }
+        return k;
+      }, methodRank);
+    } else {
+      // 대출 개별행(탭 순서와 동일하게 특수보다 위). 특수처럼 집계 제외, 개별행 전용.
+      (state.loanExpenses || []).forEach(function (li) {
+        var vals = {};
+        months.forEach(function (m) { var v = cellFor(li, m); if (v != null) vals[m] = v; });
+        tbody.appendChild(dataRow(li.name, vals, { rowClass: "row-highlight",
+          href: "expenses.html?tab=" + encodeURIComponent("대출") + "&open=" + encodeURIComponent(li.id) }));
       });
-      if (!any) return;
-      tbody.appendChild(dataRow(type, vals, { href: "expenses.html?tab=" + encodeURIComponent(type) }));
-      // 하위항목: 결제 수단별(카드 / 계좌 / 미배정) 소계
-      var groups = {}, order = [];
-      (state.expenses || []).forEach(function (it) {
-        if (it.type !== type) return;
-        var key = methodKey(it);
-        if (!groups[key]) { groups[key] = {}; order.push(key); }
+      (state.specials || []).forEach(function (sp) {
+        var vals = {};
+        months.forEach(function (m) { var v = cellFor(sp, m); if (v != null) vals[m] = v; });
+        tbody.appendChild(dataRow(sp.name, vals, { rowClass: "row-highlight",
+          href: "expenses.html?tab=" + encodeURIComponent("특수") + "&open=" + encodeURIComponent(sp.id) }));
+      });
+      // 고정-카드/고정-이체/생활/교육/추가 집계 (breakdown 사용은 hybrid 전용이므로 셀 합으로 재계산해 모드 일관성 유지)
+      ["고정-카드", "고정-이체", "생활", "교육", "추가"].forEach(function (type) {
+        var vals = {}, any = false;
         months.forEach(function (m) {
-          var v = cellFor(it, m);
-          if (v != null) groups[key][m] = (groups[key][m] || 0) + v;
+          var sum = 0, hit = false;
+          (state.expenses || []).forEach(function (it) {
+            if (it.type !== type) return;
+            var v = cellFor(it, m);
+            if (v != null) { sum += v; hit = true; }
+          });
+          if (hit) { vals[m] = sum; any = true; }
         });
+        if (!any) return;
+        tbody.appendChild(dataRow(type, vals, { href: "expenses.html?tab=" + encodeURIComponent(type) }));
+        // 하위항목: 결제 수단별(카드 / 계좌 / 미배정) 소계
+        var ents = (state.expenses || []).filter(function (it) { return it.type === type; }).map(function (it) {
+          return { item: it, vals: expenseEntry(it, type, type).vals };
+        });
+        appendSubGroups(ents, function (e) { return methodKey(e.item); }, methodRank, "expenses.html?tab=" + encodeURIComponent(type));
       });
-      order.sort(function (a, b) { return methodRank(a) - methodRank(b) || (a < b ? -1 : a > b ? 1 : 0); });
-      order.forEach(function (key) {
-        tbody.appendChild(dataRow("└ " + key, groups[key], { rowClass: "row-sub",
-          href: "expenses.html?tab=" + encodeURIComponent(type) }));
-      });
-    });
+    }
 
     // 요약
     tbody.appendChild(el("tr", null, [el("th", { colspan: months.length + 1, class: "text-left muted" }, "요약")]));
