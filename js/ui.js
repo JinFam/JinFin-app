@@ -277,25 +277,6 @@ window.JF = window.JF || {};
           var unit = d.unit || "%";
           var cur = parseFloat(d.rate);
           if (!isNaN(cur)) setFinalRate(cur + LOAN_SPREAD); // live 값 저장+캐시+콜백(대출계산기 연동)
-          var host = document.getElementById("jf-ref-rate");
-          if (!host) return;
-          host.textContent = "";
-          host.appendChild(el("span", { class: "jf-ref-base" },
-            (d.label || "금융채 6개월") + " " + d.rate + unit));
-          var deltas = [];
-          var dPrev = refDelta(cur, d.prevRate);
-          if (dPrev) deltas.push("전일 " + dPrev);
-          var dBase = refDelta(cur, d.baseRate);
-          if (dBase) deltas.push((refMmdd(d.baseAsOf) || "기준") + " " + dBase);
-          if (deltas.length) {
-            host.appendChild(el("span", { class: "jf-ref-delta" }, " · " + deltas.join(" · ")));
-          }
-          if (!isNaN(cur)) {
-            host.appendChild(el("span", { class: "jf-ref-final" },
-              " · 최종 " + (cur + LOAN_SPREAD).toFixed(2) + unit));
-          }
-          host.title = "기준 " + (d.asOf || "") + " · 가산 +" + LOAN_SPREAD + " → 최종 " +
-            (isNaN(cur) ? "?" : (cur + LOAN_SPREAD).toFixed(2)) + unit + " · " + (d.source || "");
         })
         .catch(function () {});
     } catch (e) {}
@@ -328,7 +309,6 @@ window.JF = window.JF || {};
 
     var brandbox = el("div", { class: "jf-nav-brandbox" }, [
       el("span", { class: "jf-nav-brand" }, "JinFinance"),
-      el("span", { id: "jf-ref-rate", class: "jf-ref-rate" }),   // 금융채 6개월 기준금리(rate.json 비동기 로드)
       el("span", { id: "jf-ref-payment", class: "jf-ref-rate jf-ref-payment" })  // 대표 대출 예상 원리금
     ]);
 
